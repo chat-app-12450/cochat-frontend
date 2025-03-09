@@ -13,20 +13,17 @@ const Chat = () => {
     const { roomId } = useParams();
     const { user } = useContext(AuthContext);
     const messagesEndRef = useRef(null);
-
     const clientRef = useRef(null);
+    const subscriptionRefs = useRef({});
 
     const fetchChatHistory = async () => {
         try {
             const data = await fetchWithAuth(`/api/chat/history/${roomId}`);
-            // const data = await response.json();
-            
             if (!data.success) {
                 throw new Error(data.error?.message || 'Failed to fetch chat history');
             }
-            
-            const historicalMessages = data.response;
-            setMessages(historicalMessages.map(msg => ({ ...msg, unreadCount: msg.unreadCount || 0 })));
+            const historicalMessages = data.response.chatHistory;
+            setMessages(historicalMessages);
         } catch (error) {
             console.error("Failed to fetch chat history:", error);
         } finally {
@@ -59,49 +56,23 @@ const Chat = () => {
         if (!clientRef.current) {
             initializeChat();
             
-            const socket = new SockJS("http://localhost:8080/ws/chat");
-            const token = Cookies.get('token');
-            
             const client = new Client({
-                webSocketFactory: () => socket,
+                webSocketFactory: () => new SockJS("http://localhost:8080/ws/chat"),
                 connectHeaders: {
-                    'Authorization': `${token || ''}`
+                    'Authorization': `Bearer ${Cookies.get('token')}`
                 },
                 debug: (msg) => console.log("🛠 WebSocket Debug:", msg),
                 onConnect: (frame) => {
-                    // Subscribe to chat messages
-                    client.subscribe(`/topic/chat/${roomId}`, (response) => {
+                    const chatSubscription = client.subscribe(`/topic/chat/${roomId}`, (response) => {
                         try {
                             const body = JSON.parse(response.body);
                             console.log("Received message:", body);
-                            setMessages((prev) => [...prev, { ...body, unreadCount: body.unreadCount || 0 }]);
-                            
-                            // 새 메시지의 안읽음 수 구독도 subscribeToUnreadCount 함수를 사용
-                            if (body.id) {
-                                subscribeToUnreadCount(client, body.id);
-                            }
+                            setMessages((prev) => [...prev, body]);
                         } catch (error) {
                             console.error("Failed to parse message:", error);
                         }
                     });
-
-                    // 기존 메시지들의 안읽음 수 구독을 위한 헬퍼 함수
-                    const subscribeToUnreadCount = (client, messageId) => {
-                        client.subscribe(`/topic/unread/${messageId}`, (unreadResponse) => {
-                            const unreadData = JSON.parse(unreadResponse.body);
-                            setMessages(prev => prev.map(msg => 
-                                msg.id === messageId ? { ...msg, unreadCount: unreadData.unreadCount } : msg
-                            ));
-                        });
-                    };
-
-                    // 기존 메시지들의 안읽음 수 구독
-                    messages.forEach(msg => {
-                        if (msg.id) {
-                            subscribeToUnreadCount(client, msg.id);
-                        }
-                    });
-
+                    subscriptionRefs.current['chat'] = chatSubscription;
                     setStompClient(client);
                 },
                 onStompError: (frame) => {
@@ -117,6 +88,12 @@ const Chat = () => {
             isSubscribed = false;
             if (clientRef.current) {
                 console.log("Closing WebSocket...");
+                Object.values(subscriptionRefs.current).forEach(subscription => {
+                    if (subscription) {
+                        subscription.unsubscribe();
+                    }
+                });
+                subscriptionRefs.current = {};
                 clientRef.current.deactivate();
                 clientRef.current = null;
             }
@@ -147,6 +124,41 @@ const Chat = () => {
         }
     };
 
+    // 메시지별 안읽음 수 구독 함수
+    const subscribeToUnreadCount = (client, messageId) => {
+        // 이미 구독중인 경우 중복 구독 방지
+        if (subscriptionRefs.current[messageId]) {
+            return;
+        }
+
+        const subscription = client.subscribe(`/topic/unread/${messageId}`, (unreadResponse) => {
+            try {
+                const unreadCount = JSON.parse(unreadResponse.body);
+                console.log(`Message ${messageId} unread count updated:`, unreadCount);
+                
+                setMessages(prev => prev.map(msg => 
+                    msg.id === messageId ? { ...msg, unreadCount } : msg
+                ));
+            } catch (error) {
+                console.error("Failed to parse unread count:", error);
+            }
+        });
+
+        // 구독 참조 저장
+        subscriptionRefs.current[messageId] = subscription;
+    };
+
+    // 메시지 목록이 변경될 때마다 새로운 메시지의 안읽음 수 구독
+    useEffect(() => {
+        if (stompClient && messages.length > 0) {
+            messages.forEach(msg => {
+                if (msg.id) {
+                    subscribeToUnreadCount(stompClient, msg.id);
+                }
+            });
+        }
+    }, [stompClient, messages]);
+
     return (
         <div>
             <h2>Chat WebSocket Test</h2>
@@ -174,7 +186,7 @@ const Chat = () => {
                                         color: "#666",
                                         textAlign: "right"
                                     }}>
-                                        {msg.unreadCount > 0 && `${msg.unreadCount} unread`}
+                                        {`${msg.unreadCount}명 안읽음`}
                                     </div>
                                 </div>
                             </div>
