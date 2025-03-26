@@ -1,204 +1,90 @@
-import React, { useState, useEffect, useRef, useContext } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { useParams } from "react-router-dom";
-import SockJS from "sockjs-client";
-import { Client } from "@stomp/stompjs";
-import { AuthContext } from "../App";
-import Cookies from 'js-cookie';
-import { fetchWithAuth } from "../utils/api";
+
 const Chat = () => {
-    const [stompClient, setStompClient] = useState(null);
-    const [messages, setMessages] = useState([]);
-    const [inputMessage, setInputMessage] = useState("");
-    const [isLoading, setIsLoading] = useState(true);
-    const { roomId } = useParams();
-    const { user } = useContext(AuthContext);
-    const messagesEndRef = useRef(null);
-    const clientRef = useRef(null);
-    const subscriptionRefs = useRef({});
+  const { roomId } = useParams();
+  const [socket, setSocket] = useState(null);
+  const [input, setInput] = useState("");
+  const [messages, setMessages] = useState([]);
+  const messagesEndRef = useRef(null);
 
-    const fetchChatHistory = async () => {
-        try {
-            const data = await fetchWithAuth(`/api/chat/history/${roomId}`);
-            if (!data.success) {
-                throw new Error(data.error?.message || 'Failed to fetch chat history');
-            }
-            const historicalMessages = data.response.chatHistory;
-            setMessages(historicalMessages);
-        } catch (error) {
-            console.error("Failed to fetch chat history:", error);
-        } finally {
-            setIsLoading(false);
-        }
+  useEffect(() => {
+    const ws = new WebSocket("ws://localhost:8080/ws/chat");
+
+    ws.onopen = () => {
+      console.log("✅ WebSocket connected!");
+      // 서버가 JOIN 같은 이벤트 처리 안 하면 생략 가능
     };
 
-    const enterChatRoom = async () => {
-        try {
-            await fetchWithAuth(`/api/chat/room/${roomId}/enter`, {
-                method: 'POST'
-            });
-        } catch (error) {
-            console.error("Failed to enter chat room:", error);
-        }
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        console.log("📩 Received:", data);
+
+        setMessages((prev) => [...prev, data]);
+      } catch (err) {
+        console.error("❌ JSON parse error:", err);
+      }
     };
 
-    useEffect(() => {
-        if (!user || !roomId) return;
-        
-        let isSubscribed = true;
-        
-        const initializeChat = async () => {
-            if (isSubscribed) {
-                await enterChatRoom();
-                await fetchChatHistory();
-            }
-        };
-        
-        if (!clientRef.current) {
-            initializeChat();
-            
-            const client = new Client({
-                webSocketFactory: () => new SockJS("http://localhost:8080/ws/chat"),
-                connectHeaders: {
-                    'Authorization': `Bearer ${Cookies.get('token')}`
-                },
-                debug: (msg) => console.log("🛠 WebSocket Debug:", msg),
-                onConnect: (frame) => {
-                    const chatSubscription = client.subscribe(`/topic/chat/${roomId}`, (response) => {
-                        try {
-                            const body = JSON.parse(response.body);
-                            console.log("Received message:", body);
-                            setMessages((prev) => [...prev, body]);
-                        } catch (error) {
-                            console.error("Failed to parse message:", error);
-                        }
-                    });
-                    subscriptionRefs.current['chat'] = chatSubscription;
-                    setStompClient(client);
-                },
-                onStompError: (frame) => {
-                    console.error("WebSocket Broker Error:", frame);
-                },
-            });
-
-            client.activate();
-            clientRef.current = client;
-        }
-
-        return () => {
-            isSubscribed = false;
-            if (clientRef.current) {
-                console.log("Closing WebSocket...");
-                Object.values(subscriptionRefs.current).forEach(subscription => {
-                    if (subscription) {
-                        subscription.unsubscribe();
-                    }
-                });
-                subscriptionRefs.current = {};
-                clientRef.current.deactivate();
-                clientRef.current = null;
-            }
-        };
-    }, [user, roomId]);
-
-    const scrollToBottom = () => {
-        messagesEndRef.current?.scrollIntoView({ behavior: "auto" });
+    ws.onclose = () => {
+      console.warn("🔌 WebSocket disconnected");
     };
 
-    useEffect(() => {
-        scrollToBottom();
-    }, [messages]);
+    setSocket(ws);
 
-    // ✅ Send Message Function
-    const sendMessage = () => {
-        if (stompClient && stompClient.connected) {
-            const message = { message: inputMessage, roomId: roomId };
-
-            stompClient.publish({
-                destination: `/app/sendMessage`,
-                body: JSON.stringify(message),
-            });
-
-            setInputMessage("");
-        } else {
-            console.warn("Not connected to WebSocket.");
-        }
+    return () => {
+      ws.close();
     };
+  }, [roomId]);
 
-    // 메시지별 안읽음 수 구독 함수
-    const subscribeToUnreadCount = (client, messageId) => {
-        // 이미 구독중인 경우 중복 구독 방지
-        if (subscriptionRefs.current[messageId]) {
-            return;
-        }
+  const sendMessage = () => {
+    if (socket?.readyState === WebSocket.OPEN && input.trim()) {
+      const payload = {
+        type: "MESSAGE",
+        roomId: Number(roomId),
+        senderId: 1, // 테스트용 하드코딩된 유저 ID
+        message: input,
+      };
+      socket.send(JSON.stringify(payload));
+      setInput("");
+    }
+  };
 
-        const subscription = client.subscribe(`/topic/unread/${messageId}`, (unreadResponse) => {
-            try {
-                const unreadCount = JSON.parse(unreadResponse.body);
-                console.log(`Message ${messageId} unread count updated:`, unreadCount);
-                
-                setMessages(prev => prev.map(msg => 
-                    msg.id === messageId ? { ...msg, unreadCount } : msg
-                ));
-            } catch (error) {
-                console.error("Failed to parse unread count:", error);
-            }
-        });
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
 
-        // 구독 참조 저장
-        subscriptionRefs.current[messageId] = subscription;
-    };
-
-    // 메시지 목록이 변경될 때마다 새로운 메시지의 안읽음 수 구독
-    useEffect(() => {
-        if (stompClient && messages.length > 0) {
-            messages.forEach(msg => {
-                if (msg.id) {
-                    subscribeToUnreadCount(stompClient, msg.id);
-                }
-            });
-        }
-    }, [stompClient, messages]);
-
-    return (
-        <div>
-            <h2>Chat WebSocket Test</h2>
-            <div style={{ border: "1px solid black", padding: "10px", height: "400px", overflowY: "auto" }}>
-                {isLoading ? (
-                    <div style={{ textAlign: 'center', padding: '20px' }}>Loading messages...</div>
-                ) : (
-                    <>
-                        {messages.map((msg, index) => (
-                            <div key={index} style={{ 
-                                display: "flex", 
-                                flexDirection: "column",
-                                alignItems: msg.senderId === user.id ? "flex-end" : "flex-start"
-                            }}>
-                                <div style={{ 
-                                    backgroundColor: msg.senderId === user.id ? "#DCF8C6" : "#E0FFFF",
-                                    padding: "10px", 
-                                    borderRadius: "10px", 
-                                    maxWidth: "60%",
-                                    marginBottom: "5px"
-                                }}>
-                                    <div>{msg.message}</div>
-                                    <div style={{ 
-                                        fontSize: "12px", 
-                                        color: "#666",
-                                        textAlign: "right"
-                                    }}>
-                                        {`${msg.unreadCount}명 안읽음`}
-                                    </div>
-                                </div>
-                            </div>
-                        ))}
-                        <div ref={messagesEndRef} />
-                    </>
-                )}
+  return (
+    <div style={{ maxWidth: 600, margin: "0 auto", padding: 20 }}>
+      <h2>💬 Chat Room #{roomId}</h2>
+      <div style={{ height: 300, overflowY: "auto", border: "1px solid #ccc", padding: 10 }}>
+        {messages.map((m, idx) => (
+          <div key={idx} style={{ marginBottom: 10 }}>
+            <div>
+              <strong>User {m.senderId ?? "?"}</strong>: {m.content ?? "[내용 없음]"}
             </div>
-            <input type="text" value={inputMessage} onChange={(e) => setInputMessage(e.target.value)} placeholder="Type a message..." />
-            <button onClick={sendMessage}>Send</button>
-        </div>
-    );
+            <div style={{ fontSize: "12px", color: "#888" }}>
+              🕒 {m.timestamp ? new Date(m.timestamp).toLocaleTimeString() : "시간 없음"} | 🙈 안읽음: {m.unreadCount ?? 0}명
+            </div>
+          </div>
+        ))}
+        <div ref={messagesEndRef} />
+      </div>
+      <div style={{ marginTop: 10 }}>
+        <input
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && sendMessage()}
+          placeholder="메시지를 입력하세요..."
+          style={{ width: "80%", padding: 8 }}
+        />
+        <button onClick={sendMessage} style={{ padding: "8px 12px", marginLeft: 5 }}>
+          전송
+        </button>
+      </div>
+    </div>
+  );
 };
 
 export default Chat;

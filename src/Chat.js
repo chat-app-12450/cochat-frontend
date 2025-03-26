@@ -1,92 +1,77 @@
-import React, { useState, useEffect, useRef } from "react";
-import SockJS from "sockjs-client";
-import { Client } from "@stomp/stompjs";
+import { useEffect, useRef, useState } from "react";
+import { Button } from "@/components/ui/button";
 
-const Chat = () => {
-    const [stompClient, setStompClient] = useState(null);
-    const [messages, setMessages] = useState([]);
-    const [inputMessage, setInputMessage] = useState("");
+export default function ChatRoom() {
+  const [messages, setMessages] = useState([]);
+  const [input, setInput] = useState("");
+  const ws = useRef(null);
 
-    const roomId = 1; 
-    const token = "testToken1"; 
+  useEffect(() => {
+    ws.current = new WebSocket("ws://localhost:8080/ws/chat");
 
-    const clientRef = useRef(null);
+    ws.current.onopen = () => console.log("🟢 WebSocket connected!");
+    ws.current.onclose = () => console.warn("🔌 WebSocket disconnected");
+    ws.current.onerror = (err) => console.error("❌ WebSocket error:", err);
 
-    useEffect(() => {
-        if (clientRef.current) return; // Prevent duplicate connections
+    ws.current.onmessage = (event) => {
+      try {
+        const raw = JSON.parse(event.data);
+        console.log("📨 Raw received:", raw);
 
-        console.log("Opening WebSocket...");
+        // 만약 서버에서 감싼 구조로 보내면 아래에서 분기 처리
+        const message = raw.response ?? raw;
 
-        // Remove the direct WebSocket connection
-        const socket = new SockJS("http://localhost:8080/ws/chat");
-
-        const client = new Client({
-            webSocketFactory: () => socket,
-            connectHeaders: {
-                'Authorization': `Bearer ${token}`
-            },
-            debug: (msg) => console.log("🛠 WebSocket Debug:", msg),
-            onConnect: (frame) => {
-                console.log("✅ WebSocket Connected!", frame);
-
-                client.subscribe(`/topic/chat/${roomId}`, (response) => {
-                    try {
-                        const body = JSON.parse(response.body);
-                        setMessages((prev) => [...prev, { ...body, unreadCount: body.unreadCount || 0 }]);
-                    } catch (error) {
-                        console.error("Failed to parse message:", error);
-                    }
-                });
-
-                setStompClient(client);
-            },
-            onStompError: (frame) => {
-                console.error("WebSocket Broker Error:", frame);
-            },
-        });
-
-        client.activate();
-        clientRef.current = client; 
-
-        return () => {
-            console.log("Closing WebSocket...");
-            client.deactivate();
-            clientRef.current = null;
-        };
-    }, []);
-
-    // ✅ Send Message Function
-    const sendMessage = () => {
-        if (stompClient && stompClient.connected) {
-            const message = { message: inputMessage, roomId: roomId };
-
-            stompClient.publish({
-                destination: `/app/sendMessage`,
-                body: JSON.stringify(message),
-            });
-
-            setInputMessage("");
-        } else {
-            console.warn("Not connected to WebSocket.");
-        }
+        setMessages((prev) => [...prev, message]);
+      } catch (err) {
+        console.error("❌ Failed to parse message:", err);
+      }
     };
 
-    return (
-        <div>
-            <h2>Chat WebSocket Test</h2>
-            <div style={{ border: "1px solid black", padding: "10px", height: "400px", overflowY: "auto" }}>
-                {messages.map((msg, index) => (
-                    <div key={index} style={{ display: "flex", flexDirection: "column", alignItems: "flex-start" }}>
-                        <p style={{ backgroundColor: "#E0FFFF", padding: "10px", borderRadius: "10px", maxWidth: "60%", textAlign: "left" }}>
-                            {msg.message}
-                        </p>
-                    </div>
-                ))}
-            </div>
-            <input type="text" value={inputMessage} onChange={(e) => setInputMessage(e.target.value)} placeholder="Type a message..." />
-            <button onClick={sendMessage}>Send</button>
-        </div>
-    );
-};
+    return () => {
+      ws.current?.close();
+    };
+  }, []);
 
-export default Chat;
+  const sendMessage = () => {
+    if (input.trim() && ws.current?.readyState === WebSocket.OPEN) {
+      const message = {
+        roomId: 1,
+        senderId: 1,
+        content: input,
+      };
+      ws.current.send(JSON.stringify(message));
+      setInput("");
+    }
+  };
+
+  return (
+    <div className="max-w-xl mx-auto p-4">
+      <h2 className="text-2xl font-bold mb-4">📡 WebSocket Chat (No STOMP)</h2>
+      <div className="border rounded-lg h-96 overflow-y-scroll p-4 mb-4 shadow-sm bg-white">
+        {messages.length === 0 && <div className="text-gray-400">🙈 메시지 없음</div>}
+        {messages.map((msg, idx) => (
+          <div key={idx} className="mb-2">
+            <div>
+              <span className="font-semibold">👤 User {msg.senderId ?? "?"}:</span>{" "}
+              {msg.content ?? "[내용 없음]"}
+            </div>
+            <div className="text-sm text-gray-500">
+              🕓 {msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString() : "시간 없음"} |{" "}
+              🙈 안읽음: {msg.unreadCount ?? 0}명
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="flex gap-2">
+        <input
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          className="flex-grow border rounded px-3 py-2"
+          placeholder="메시지를 입력하세요..."
+          onKeyDown={(e) => e.key === "Enter" && sendMessage()}
+        />
+        <Button onClick={sendMessage}>전송</Button>
+      </div>
+    </div>
+  );
+}
