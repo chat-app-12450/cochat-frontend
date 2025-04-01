@@ -1,47 +1,86 @@
-import { useEffect, useRef, useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
+import { useParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 
-export default function ChatRoom() {
+const Chat = () => {
+  const { roomId } = useParams();
   const [messages, setMessages] = useState([]);
-  const [input, setInput] = useState("");
-  const ws = useRef(null);
+  const [inputMessage, setInputMessage] = useState("");
+  const [connected, setConnected] = useState(false);
+  
+  const token = "testToken1";
+  const wsRef = useRef(null);
 
   useEffect(() => {
-    ws.current = new WebSocket("ws://localhost:8080/ws/chat");
+    if (wsRef.current) {
+      wsRef.current.close();
+      wsRef.current = null;
+    }
 
-    ws.current.onopen = () => console.log("🟢 WebSocket connected!");
-    ws.current.onclose = () => console.warn("🔌 WebSocket disconnected");
-    ws.current.onerror = (err) => console.error("❌ WebSocket error:", err);
+    if (!roomId) return;
 
-    ws.current.onmessage = (event) => {
+    console.log("Opening WebSocket...");
+    const ws = new WebSocket(`ws://localhost:8080/ws/chat?token=${token}&roomId=${roomId}`);
+
+    ws.onopen = () => {
+      console.log("✅ WebSocket Connected! Room:", roomId);
+      setConnected(true);
+    
+      const joinMessage = {
+        type: "JOIN",
+        roomId: Number(roomId),
+      };
+    
+      console.log("sending join", joinMessage); // 여기
+      ws.send(JSON.stringify(joinMessage));
+    };
+    
+
+    ws.onmessage = (event) => {
       try {
-        const raw = JSON.parse(event.data);
-        console.log("📨 Raw received:", raw);
-
-        // 만약 서버에서 감싼 구조로 보내면 아래에서 분기 처리
-        const message = raw.response ?? raw;
-
-        setMessages((prev) => [...prev, message]);
-      } catch (err) {
-        console.error("❌ Failed to parse message:", err);
+        const response = JSON.parse(event.data);
+        if (response.type === "MESSAGE") {
+          setMessages((prev) => [...prev, response]);
+        } else {
+          console.log("Received non-message type:", response.type);
+        }
+      } catch (error) {
+        console.error("Failed to parse message:", error);
       }
     };
 
-    return () => {
-      ws.current?.close();
+    ws.onerror = (error) => {
+      console.error("WebSocket Error:", error);
     };
-  }, []);
+
+    ws.onclose = () => {
+      console.log("WebSocket Closed");
+      setConnected(false);
+    };
+
+    wsRef.current = ws;
+
+    return () => {
+      console.log("Closing WebSocket...");
+      ws.close();
+      wsRef.current = null;
+    };
+  }, [roomId]);
 
   const sendMessage = () => {
-    if (input.trim() && ws.current?.readyState === WebSocket.OPEN) {
-      const message = {
-        roomId: 1,
-        senderId: 1,
-        content: input,
-      };
-      ws.current.send(JSON.stringify(message));
-      setInput("");
+    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+      console.warn("WebSocket is not connected");
+      return;
     }
+
+    const message = {
+      type: "MESSAGE",
+      roomId: Number(roomId),
+      message: inputMessage,
+    };
+
+    wsRef.current.send(JSON.stringify(message));
+    setInputMessage("");
   };
 
   return (
@@ -64,14 +103,22 @@ export default function ChatRoom() {
       </div>
       <div className="flex gap-2">
         <input
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
+          value={inputMessage}
+          onChange={(e) => setInputMessage(e.target.value)}
           className="flex-grow border rounded px-3 py-2"
           placeholder="메시지를 입력하세요..."
           onKeyDown={(e) => e.key === "Enter" && sendMessage()}
+          disabled={!connected}
         />
-        <Button onClick={sendMessage}>전송</Button>
+        <Button onClick={sendMessage} disabled={!connected}>전송</Button>
       </div>
+      {!connected && (
+        <div className="text-red-500 mt-4">
+          Disconnected from chat server
+        </div>
+      )}
     </div>
   );
-}
+};
+
+export default Chat;
