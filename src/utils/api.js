@@ -1,4 +1,4 @@
-export const API_BASE_URL = "http://localhost:8080"; // Change for production
+export const API_BASE_URL = process.env.REACT_APP_CHAT_API_URL; // Change for production
 
 export const fetchWithAuth = async (endpoint, options = {}) => {
     const response = await fetch(`${API_BASE_URL}${endpoint}`, {

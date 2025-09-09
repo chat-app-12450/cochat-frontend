@@ -3,7 +3,6 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-d
 import LoginPage from "./pages/LoginPage";
 import HomePage from "./pages/HomePage";
 import ProfilePage from "./pages/ProfilePage";
-import PostPage from "./pages/PostPage";
 import ChatPage from "./pages/ChatPage";
 import { fetchWithAuth } from "./utils/api";
 
@@ -16,7 +15,7 @@ const AuthProvider = ({ children }) => {
     useEffect(() => {
         const validateToken = async () => {
             try {
-                const response = await fetchWithAuth(`/api/user/validate-token`, { method: "POST" });
+                const response = await fetchWithAuth(`/user/validate-token`, { method: "POST" });
                 console.log(response);
                 if (response.success) {
                     setUser(response.response);
@@ -64,8 +63,8 @@ const App = () => {
                     <Route path="/login" element={<LoginPage />} />
                     <Route path="/" element={<ProtectedRoute element={<HomePage />} />} />
                     <Route path="/profile" element={<ProtectedRoute element={<ProfilePage />} />} />
-                    <Route path="/posts/:postId" element={<ProtectedRoute element={<PostPage />} />} />
-                    <Route path="/chat/:roomId" element={<ProtectedRoute element={<ChatPage />} />} />
+                    {/* <Route path="/chat/:roomId" element={<ProtectedRoute element={<ChatPage />} />} /> */}
+                    <Route path="/chat/:roomId" element={<ChatPage />} />
                 </Routes>
             </Router>
         </AuthProvider>
