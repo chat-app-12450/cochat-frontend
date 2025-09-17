@@ -129,9 +129,9 @@ generate_nginx_config() {
     
     # 환경변수 치환하여 nginx 설정 생성
     # envsubst < /etc/nginx/nginx.conf.template > /etc/nginx/conf.d/default.conf
-    envsubst '${CHAT_SERVER_HOST} ${CHAT_SERVER_PORT} ${CHATBOT_SERVER_HOST} 
-    ${WEBSOCKET_ENDPOINT}
-    ${CHATBOT_SERVER_PORT} ${WEBSOCKET_PREFIX}' \
+    envsubst '${CHAT_SERVER_HOST} ${CHAT_SERVER_PORT} ${CHATBOT_SERVER_HOST}  ${CHATBOT_SERVER_PORT}
+    ${WEBSOCKET_ENDPOINT} ${BOT_WEBSOCKET_ENDPOINT}
+    ${WEBSOCKET_PREFIX} ${BOT_WEBSOCKET_PREFIX}' \
       < /etc/nginx/nginx.conf.template >  /etc/nginx/conf.d/default.conf
     
     log_success "nginx 설정 생성 완료"
