@@ -57,7 +57,7 @@ spec:
           sh '''
             echo "📦 Installing dependencies and building React..."
             npm ci --cache /home/jenkins/.npm
-            npm run build
+            CI=false npm run build
           '''
         }
       }
