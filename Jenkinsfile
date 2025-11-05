@@ -91,7 +91,7 @@ spec:
 
             git config user.email "jenkins@infra.local"
             git config user.name "jenkins"
-            git add server/chat-frontend/values.yaml
+            git add server/frontend/values.yaml
             git commit -am "Update frontend image tag to ${TAG}" || echo "No changes to commit"
             git push origin main
           '''
