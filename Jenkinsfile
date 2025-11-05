@@ -87,7 +87,7 @@ spec:
             git clone -b main http://jenkins:${TOKEN_CLEAN}@gitea-http.infra.svc.cluster.local:3000/chaops/helm_repo.git
 
             cd helm_repo
-            sed -i "s|tag:.*|tag: \\"$TAG\\"|g" server/chat-frontend/values.yaml
+            sed -i "s|tag:.*|tag: \\"$TAG\\"|g" server/frontend/values.yaml
 
             git config user.email "jenkins@infra.local"
             git config user.name "jenkins"
