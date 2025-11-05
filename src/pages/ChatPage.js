@@ -17,7 +17,7 @@ const ChatPage = () => {
         justifyContent: "center",
         alignItems: "flex-start",
         padding: 32,
-        background: "#f8f9fa",
+        background: "#FFF0F5",
         minHeight: "100vh",
       }}
     >
