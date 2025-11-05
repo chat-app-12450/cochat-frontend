@@ -21,7 +21,7 @@ const LoginPage = () => {
 
         if (response.success) {
             setUser(response.response); // Store user state
-            navigate("/chat/1"); // Redirect to homepage
+            navigate("/chat/1"); 
         } else {
             setError(response.error?.message || "Login failed");
         }

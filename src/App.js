@@ -1,8 +1,6 @@
 import React, { useState, useEffect, createContext, useContext } from "react";
 import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
 import LoginPage from "./pages/LoginPage";
-import HomePage from "./pages/HomePage";
-import ProfilePage from "./pages/ProfilePage";
 import ChatPage from "./pages/ChatPage";
 import { fetchWithAuth } from "./utils/api";
 
@@ -61,8 +59,6 @@ const App = () => {
             <Router>
                 <Routes>
                     <Route path="/login" element={<LoginPage />} />
-                    <Route path="/" element={<ProtectedRoute element={<HomePage />} />} />
-                    <Route path="/profile" element={<ProtectedRoute element={<ProfilePage />} />} />
                     {/* <Route path="/chat/:roomId" element={<ProtectedRoute element={<ChatPage />} />} /> */}
                     <Route path="/chat/:roomId" element={<ChatPage />} />
                 </Routes>
