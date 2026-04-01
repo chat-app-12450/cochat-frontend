@@ -47,7 +47,14 @@ const ChatRoomListPanel = ({ rooms, currentRoomId, loading, error }) => {
             >
               <div className="chat-room-card__topline">
                 <strong>{room.counterpart?.name ?? room.name}</strong>
-                {room.product?.status && <ProductStatusBadge status={room.product.status} />}
+                <div className="chat-room-card__meta">
+                  {room.unreadCount > 0 && (
+                    <span className="chat-room-card__unread">
+                      {room.unreadCount > 99 ? "99+" : room.unreadCount}
+                    </span>
+                  )}
+                  {room.product?.status && <ProductStatusBadge status={room.product.status} />}
+                </div>
               </div>
               <p className="chat-room-card__product">{room.product?.title ?? "일반 대화"}</p>
               <p className="chat-room-card__message">

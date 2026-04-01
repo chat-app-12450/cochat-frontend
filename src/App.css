@@ -486,6 +486,26 @@ textarea {
   background: var(--accent-soft);
 }
 
+.chat-room-card__meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.chat-room-card__unread {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: #d9485f;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .chat-room-card__product,
 .chat-room-card__message {
   margin: 8px 0;

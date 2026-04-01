@@ -81,6 +81,15 @@ const UserChatRoom = ({ roomId }) => {
   const { user } = useContext(AuthContext);
   const myUserId = user?.userId || user?.id;
 
+  const markRoomAsRead = useCallback(async (messageId = null) => {
+    const query = messageId != null ? `?message_id=${messageId}` : "";
+    try {
+      await fetchWithAuth(`/chat/rooms/${roomId}/read${query}`, { method: "POST" });
+    } catch {
+      // 읽음 처리는 실패해도 채팅 사용 자체를 막지는 않는다.
+    }
+  }, [roomId]);
+
   useEffect(() => {
     roomIdRef.current = roomId;
   }, [roomId]);
@@ -153,6 +162,9 @@ const UserChatRoom = ({ roomId }) => {
       });
       setHasMoreHistory(Boolean(page.hasMore));
       setNextBeforeMessageId(page.nextBeforeMessageId ?? null);
+      if (beforeMessageId == null) {
+        markRoomAsRead();
+      }
     } catch {
       // ignore history loading errors here and keep room usable for realtime messages
     } finally {
@@ -161,7 +173,7 @@ const UserChatRoom = ({ roomId }) => {
         setIsLoadingHistory(false);
       }
     }
-  }, [roomId]);
+  }, [markRoomAsRead, roomId]);
 
   useEffect(() => {
     let isActive = true;
@@ -213,6 +225,9 @@ const UserChatRoom = ({ roomId }) => {
                 scrollInstructionRef.current = { type: "bottom" };
               }
               setMessages((prev) => mergeMessages([...prev, data]));
+              if (String(data.senderId) !== String(myUserId) && data.messageId != null) {
+                markRoomAsRead(data.messageId);
+              }
             } catch {
               // ignore malformed broadcast
             }
@@ -246,7 +261,7 @@ const UserChatRoom = ({ roomId }) => {
       }
       ws.close();
     };
-  }, [roomId, loadHistory]);
+  }, [roomId, loadHistory, markRoomAsRead, myUserId]);
 
   const sendMessage = () => {
     const socket = socketRef.current;
