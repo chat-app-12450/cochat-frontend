@@ -44,7 +44,7 @@ spec:
   }
 
   environment {
-    DOCKER_REPO = 'docker.io/dockeracckai'
+    DOCKER_REPO = 'docker.io/spotifyyyyy/ejlabs'
     IMAGE_NAME  = 'chat-frontend'
     TAG         = "${new Date().format('yyyyMMdd')}-${UUID.randomUUID().toString().take(4)}"
   }

@@ -1,121 +1,88 @@
-import React, { useState, useContext } from "react";
-import { useNavigate } from "react-router-dom";
+import React, { useContext, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import { fetchWithAuth } from "../utils/api";
 import { AuthContext } from "../App";
 
 const LoginPage = () => {
-    const [userId, setUserId] = useState("");
-    const [password, setPassword] = useState("");
-    const [error, setError] = useState(null);
-    const navigate = useNavigate();
-    const { setUser } = useContext(AuthContext);
+  const [userId, setUserId] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const navigate = useNavigate();
+  const { setUser } = useContext(AuthContext);
 
-    const handleLogin = async (e) => {
-        e.preventDefault();
-        setError(null);
+  const handleLogin = async (event) => {
+    event.preventDefault();
+    setError(null);
+    setIsSubmitting(true);
 
-        const response = await fetchWithAuth("/user/login", {
-            method: "POST",
-            body: JSON.stringify({ userId, password }),
-        });
+    try {
+      const response = await fetchWithAuth("/user/login", {
+        method: "POST",
+        body: JSON.stringify({ userId, password }),
+      });
 
-        if (response.success) {
-            setUser(response.response); // Store user state
-            navigate("/chat/1"); 
-        } else {
-            setError(response.error?.message || "Login failed");
-        }
-    };
+      if (!response.success) {
+        setError(response.error?.message || "로그인에 실패했습니다.");
+        return;
+      }
 
-    return (
-        <div
-            style={{
-                minHeight: "100vh",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                background: "linear-gradient(135deg, #228be6 0%, #74c0fc 100%)",
-            }}
-        >
-            <div
-                style={{
-                    background: "white",
-                    padding: 40,
-                    borderRadius: 16,
-                    boxShadow: "0 4px 24px rgba(34,139,230,0.15)",
-                    minWidth: 320,
-                    maxWidth: 350,
-                    width: "100%",
-                }}
-            >
-                <h2 style={{
-                    textAlign: "center",
-                    color: "#228be6",
-                    marginBottom: 24,
-                    fontWeight: 700,
-                    letterSpacing: 1
-                }}>로그인</h2>
-                {error && <p style={{ color: "#ff6b6b", textAlign: "center", marginBottom: 16 }}>{error}</p>}
-                <form onSubmit={handleLogin}>
-                    <input
-                        type="text"
-                        placeholder="User ID"
-                        value={userId}
-                        onChange={(e) => setUserId(e.target.value)}
-                        required
-                        style={{
-                            width: "100%",
-                            padding: "12px 14px",
-                            marginBottom: 14,
-                            border: "1px solid #b6e0fe",
-                            borderRadius: 8,
-                            fontSize: 16,
-                            outline: "none",
-                            boxSizing: "border-box",
-                            transition: "border 0.2s",
-                        }}
-                    />
-                    <input
-                        type="password"
-                        placeholder="Password"
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                        required
-                        style={{
-                            width: "100%",
-                            padding: "12px 14px",
-                            marginBottom: 20,
-                            border: "1px solid #b6e0fe",
-                            borderRadius: 8,
-                            fontSize: 16,
-                            outline: "none",
-                            boxSizing: "border-box",
-                            transition: "border 0.2s",
-                        }}
-                    />
-                    <button
-                        type="submit"
-                        style={{
-                            width: "100%",
-                            padding: "12px 0",
-                            background: "linear-gradient(90deg, #228be6 60%, #4dabf7 100%)",
-                            color: "white",
-                            border: "none",
-                            borderRadius: 8,
-                            fontWeight: 600,
-                            fontSize: 17,
-                            letterSpacing: 1,
-                            cursor: "pointer",
-                            boxShadow: "0 2px 8px rgba(34,139,230,0.08)",
-                            transition: "background 0.2s",
-                        }}
-                    >
-                        로그인
-                    </button>
-                </form>
-            </div>
-        </div>
-    );
+      setUser(response.response);
+      navigate("/products", { replace: true });
+    } catch {
+      setError("로그인 요청에 실패했습니다.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="auth-screen">
+      <div className="auth-card">
+        <span className="section-kicker">EJ Labs Market</span>
+        <h1>실시간 채팅이 붙은 동네 중고거래</h1>
+        <p className="auth-subcopy">
+          상품을 등록하고, 관심 있는 사용자와 바로 1:1 대화를 시작하세요.
+        </p>
+
+        <form className="auth-form" onSubmit={handleLogin}>
+          <label className="field-group">
+            <span>아이디</span>
+            <input
+              type="text"
+              value={userId}
+              onChange={(event) => setUserId(event.target.value)}
+              required
+            />
+          </label>
+
+          <label className="field-group">
+            <span>비밀번호</span>
+            <input
+              type="password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              required
+            />
+          </label>
+
+          {error && <div className="feedback feedback--error">{error}</div>}
+
+          <button
+            type="submit"
+            className="primary-button primary-button--full"
+            disabled={isSubmitting}
+          >
+            {isSubmitting ? "로그인 중..." : "로그인"}
+          </button>
+        </form>
+
+        <p className="auth-link-row">
+          아직 계정이 없나요? <Link to="/register">회원가입</Link>
+        </p>
+      </div>
+    </div>
+  );
 };
 
 export default LoginPage;

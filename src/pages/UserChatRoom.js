@@ -1,125 +1,314 @@
-import React, { useEffect, useState, useRef, useContext } from "react";
+import React, { useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { v4 as uuidv4 } from "uuid";
 import { AuthContext } from "../App";
+import { fetchWithAuth } from "../utils/api";
 
-const CHAT_API_URL = process.env.REACT_APP_CHAT_API_URL;
 const CHAT_WS_URL = process.env.REACT_APP_CHAT_WS_URL;
+const HISTORY_PAGE_SIZE = 30;
+const HISTORY_SCROLL_THRESHOLD = 80;
+
+const buildStompFrame = (command, headers = {}, body = "") => {
+  const headerLines = Object.entries(headers).map(([key, value]) => `${key}:${value}`);
+  const headerBlock = headerLines.length > 0 ? `\n${headerLines.join("\n")}` : "";
+  return `${command}${headerBlock}\n\n${body}\0`;
+};
+
+const parseStompFrame = (rawFrame) => {
+  const normalized = rawFrame.replace(/\r/g, "");
+  const [headerSection, ...bodyParts] = normalized.split("\n\n");
+  const [command, ...headerLines] = headerSection.split("\n");
+  const headers = {};
+
+  headerLines.filter(Boolean).forEach((line) => {
+    const separatorIndex = line.indexOf(":");
+    if (separatorIndex <= 0) {
+      return;
+    }
+    const key = line.slice(0, separatorIndex);
+    const value = line.slice(separatorIndex + 1);
+    headers[key] = value;
+  });
+
+  return {
+    command,
+    headers,
+    body: bodyParts.join("\n\n"),
+  };
+};
+
+const normalizeMessage = (message) => ({
+  messageId: message.messageId ?? message.id,
+  content: message.content ?? "",
+  senderId: message.senderId,
+  createdAt: message.createdAt ?? message.receivedAt ?? null,
+});
+
+const mergeMessages = (messages) => {
+  const mergedById = new Map();
+  messages.forEach((message) => {
+    const normalized = normalizeMessage(message);
+    if (normalized.messageId != null) {
+      mergedById.set(String(normalized.messageId), normalized);
+    }
+  });
+
+  return Array.from(mergedById.values()).sort((left, right) => {
+    return Number(left.messageId) - Number(right.messageId);
+  });
+};
+
+const isNearBottom = (element) => {
+  if (!element) {
+    return true;
+  }
+  return element.scrollHeight - element.scrollTop - element.clientHeight < 80;
+};
 
 const UserChatRoom = ({ roomId }) => {
-  const [socket, setSocket] = useState(null);
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState([]);
-  const messagesEndRef = useRef(null);
+  const [connectionError, setConnectionError] = useState(null);
+  const [hasMoreHistory, setHasMoreHistory] = useState(true);
+  const [nextBeforeMessageId, setNextBeforeMessageId] = useState(null);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+  const socketRef = useRef(null);
+  const connectedRef = useRef(false);
+  const frameBufferRef = useRef("");
+  const messageListRef = useRef(null);
+  const roomIdRef = useRef(roomId);
+  const isLoadingHistoryRef = useRef(false);
+  const scrollInstructionRef = useRef({ type: "none" });
   const { user } = useContext(AuthContext);
   const myUserId = user?.userId || user?.id;
 
   useEffect(() => {
-    // 메시지 내역 먼저 불러오기
-    const fetchHistory = async () => {
-      try {
-        const res = await fetch(`${CHAT_API_URL}/chat/history?room_id=${roomId}`, {
-          credentials: "include"
-        });
-        const data = await res.json();
-        console.log("data" ,data)
-        if (data.response) {
-          setMessages(data.response);
-        }
-      } catch (err) {
-        // 에러 처리
-      }
-    };
-    fetchHistory();
-
-    const ws = new WebSocket(CHAT_WS_URL);
-    ws.onopen = () => {
-      ws.send(JSON.stringify({ type: "JOIN", roomId: Number(roomId) }));
-    };
-    ws.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        setMessages((prev) => [...prev, data]);
-      } catch (err) {
-        // ignore
-      }
-    };
-    setSocket(ws);
-    return () => ws.close();
+    roomIdRef.current = roomId;
   }, [roomId]);
 
+  useLayoutEffect(() => {
+    const messageList = messageListRef.current;
+    const instruction = scrollInstructionRef.current;
+    if (!messageList || instruction.type === "none") {
+      return;
+    }
+
+    if (instruction.type === "bottom") {
+      messageList.scrollTop = messageList.scrollHeight;
+    }
+
+    if (instruction.type === "preserve") {
+      // 이전 메시지를 위에 prepend하면 scrollHeight가 커지므로,
+      // 늘어난 높이만큼 scrollTop을 보정해서 사용자가 보던 위치를 유지한다.
+      messageList.scrollTop =
+        messageList.scrollHeight - instruction.previousScrollHeight + instruction.previousScrollTop;
+    }
+
+    scrollInstructionRef.current = { type: "none" };
+  }, [messages]);
+
+  const loadHistory = useCallback(async (beforeMessageId = null) => {
+    if (isLoadingHistoryRef.current) {
+      return;
+    }
+
+    const requestedRoomId = roomId;
+    const messageList = messageListRef.current;
+    const previousScrollHeight = messageList?.scrollHeight ?? 0;
+    const previousScrollTop = messageList?.scrollTop ?? 0;
+
+    isLoadingHistoryRef.current = true;
+    setIsLoadingHistory(true);
+
+    try {
+      const query = new URLSearchParams({
+        room_id: String(requestedRoomId),
+        size: String(HISTORY_PAGE_SIZE),
+      });
+      if (beforeMessageId != null) {
+        query.set("before_message_id", String(beforeMessageId));
+      }
+
+      const data = await fetchWithAuth(`/chat/history?${query.toString()}`, { method: "GET" });
+      if (requestedRoomId !== roomIdRef.current || !data?.response) {
+        return;
+      }
+
+      const page = data.response;
+      const historyMessages = Array.isArray(page.messages) ? page.messages.map(normalizeMessage) : [];
+
+      // 첫 로딩은 맨 아래로, 이전 페이지 로딩은 현재 읽던 위치를 유지한다.
+      scrollInstructionRef.current = beforeMessageId == null
+        ? { type: "bottom" }
+        : {
+            type: "preserve",
+            previousScrollHeight,
+            previousScrollTop,
+          };
+
+      setMessages((prev) => {
+        if (beforeMessageId == null) {
+          return mergeMessages(historyMessages);
+        }
+        return mergeMessages([...historyMessages, ...prev]);
+      });
+      setHasMoreHistory(Boolean(page.hasMore));
+      setNextBeforeMessageId(page.nextBeforeMessageId ?? null);
+    } catch {
+      // ignore history loading errors here and keep room usable for realtime messages
+    } finally {
+      if (requestedRoomId === roomIdRef.current) {
+        isLoadingHistoryRef.current = false;
+        setIsLoadingHistory(false);
+      }
+    }
+  }, [roomId]);
+
+  useEffect(() => {
+    let isActive = true;
+
+    setMessages([]);
+    setConnectionError(null);
+    setHasMoreHistory(true);
+    setNextBeforeMessageId(null);
+    isLoadingHistoryRef.current = false;
+    scrollInstructionRef.current = { type: "none" };
+
+    loadHistory();
+
+    const ws = new WebSocket(CHAT_WS_URL);
+    socketRef.current = ws;
+    ws.onopen = () => {
+      ws.send(buildStompFrame("CONNECT", {
+        "accept-version": "1.2",
+        "heart-beat": "0,0",
+      }));
+    };
+    ws.onmessage = (event) => {
+      frameBufferRef.current += event.data;
+      const frames = frameBufferRef.current.split("\0");
+      frameBufferRef.current = frames.pop() ?? "";
+
+      frames
+        .filter(Boolean)
+        .map(parseStompFrame)
+        .forEach((frame) => {
+          if (!isActive) {
+            return;
+          }
+
+          if (frame.command === "CONNECTED") {
+            connectedRef.current = true;
+            setConnectionError(null);
+            ws.send(buildStompFrame("SUBSCRIBE", {
+              id: `room-${roomId}`,
+              destination: `/topic/chat/rooms/${roomId}`,
+            }));
+            return;
+          }
+
+          if (frame.command === "MESSAGE") {
+            try {
+              const data = normalizeMessage(JSON.parse(frame.body));
+              if (isNearBottom(messageListRef.current)) {
+                scrollInstructionRef.current = { type: "bottom" };
+              }
+              setMessages((prev) => mergeMessages([...prev, data]));
+            } catch {
+              // ignore malformed broadcast
+            }
+            return;
+          }
+
+          if (frame.command === "ERROR") {
+            connectedRef.current = false;
+            setConnectionError(frame.body || "채팅 서버 연결이 거부되었습니다.");
+            ws.close();
+          }
+        });
+    };
+    ws.onclose = () => {
+      connectedRef.current = false;
+      if (isActive) {
+        setConnectionError((current) => current ?? "실시간 채팅 연결이 종료되었습니다.");
+      }
+    };
+    ws.onerror = () => {
+      connectedRef.current = false;
+      setConnectionError("실시간 채팅 연결에 실패했습니다.");
+    };
+
+    return () => {
+      isActive = false;
+      connectedRef.current = false;
+      frameBufferRef.current = "";
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(buildStompFrame("DISCONNECT"));
+      }
+      ws.close();
+    };
+  }, [roomId, loadHistory]);
+
   const sendMessage = () => {
-    if (socket?.readyState === WebSocket.OPEN && input.trim()) {
-      const payload = {
-        type: "MESSAGE",
-        roomId: Number(roomId),
-        message: input.trim(),
-        clientMessageId: uuidv4(),
-      };
-      console.log("message sent", payload);
-      socket.send(JSON.stringify(payload));
-      setInput("");
+    const socket = socketRef.current;
+    if (!socket || socket.readyState !== WebSocket.OPEN || !connectedRef.current || !input.trim()) {
+      return;
+    }
+
+    const payload = JSON.stringify({
+      message: input.trim(),
+      clientMessageId: uuidv4(),
+    });
+
+    socket.send(buildStompFrame("SEND", {
+      destination: `/app/chat/rooms/${roomId}/messages`,
+      "content-type": "application/json",
+    }, payload));
+    setInput("");
+  };
+
+  const handleMessageScroll = () => {
+    const messageList = messageListRef.current;
+    if (!messageList || isLoadingHistory || !hasMoreHistory || nextBeforeMessageId == null) {
+      return;
+    }
+
+    if (messageList.scrollTop <= HISTORY_SCROLL_THRESHOLD) {
+      loadHistory(nextBeforeMessageId);
     }
   };
 
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
-
   return (
-    <div style={{
-      background: "white",
-      borderRadius: 16,
-      boxShadow: "0 4px 24px rgba(34,139,230,0.10)",
-      padding: 24,
-      width: 350,
-      minHeight: 480,
-      height: 480,
-      display: "flex",
-      flexDirection: "column",
-    }}>
-      <h2 style={{ color: "#228be6", textAlign: "center", marginBottom: 16 }}>유저 채팅방</h2>
-      <div style={{
-        flex: 1,
-        overflowY: "auto",
-        border: "1px solid #e3eafc",
-        borderRadius: 8,
-        padding: 10,
-        marginBottom: 12,
-        background: "#f8faff",
-        height: 350,
-        minHeight: 350,
-        maxHeight: 350,
-      }}>
+    <div className="message-panel">
+      {connectionError && (
+        <div className="feedback feedback--error">
+          {connectionError}
+        </div>
+      )}
+      <div
+        className="message-panel__list"
+        ref={messageListRef}
+        onScroll={handleMessageScroll}
+      >
+        {isLoadingHistory && (
+          <div className="muted-text message-panel__loader">
+            이전 메시지 불러오는 중...
+          </div>
+        )}
         {messages.map((m, idx) => {
           const isMine = String(m.senderId) === String(myUserId);
           return (
             <div
-              key={m.messageId}
-              style={{
-                marginBottom: 10,
-                textAlign: isMine ? 'right' : 'left',
-              }}
+              key={m.messageId ?? idx}
+              className={`message-row ${isMine ? "message-row--mine" : ""}`}
             >
-              <div
-                style={{
-                  display: "inline-block",
-                  background: isMine ? "#e7f5ff" : "#fff9db",
-                  color: isMine ? "#228be6" : "#fab005",
-                  borderRadius: 8,
-                  padding: "6px 12px",
-                  fontWeight: 500,
-                  maxWidth: 220,
-                  wordBreak: "break-all",
-                }}
-              >
+              <div className={`message-bubble ${isMine ? "message-bubble--mine" : ""}`}>
                 {isMine ? "나" : `User ${m.senderId ?? "?"}`} : {m.content ?? "[내용 없음]"}
               </div>
             </div>
           );
         })}
-        <div ref={messagesEndRef} />
       </div>
-      <div style={{ display: "flex", gap: 8 }}>
+      <div className="message-panel__composer">
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
@@ -130,19 +319,11 @@ const UserChatRoom = ({ roomId }) => {
             }
           }}
           placeholder="메시지를 입력하세요..."
-          style={{ flex: 1, padding: 8, borderRadius: 6, border: "1px solid #b6e0fe" }}
+          className="message-panel__input"
         />
         <button
           onClick={sendMessage}
-          style={{
-            padding: "8px 12px",
-            backgroundColor: "#228be6",
-            color: "white",
-            border: "none",
-            borderRadius: "6px",
-            cursor: "pointer",
-            fontWeight: 600,
-          }}
+          className="primary-button"
         >
           전송
         </button>

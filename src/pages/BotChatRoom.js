@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useRef } from "react";
+import { fetchWithAuthBase } from "../utils/api";
 
 const BOT_API_URL = process.env.REACT_APP_BOT_API_URL;
 const BOT_WS_URL = process.env.REACT_APP_BOT_WS_URL;
@@ -13,10 +14,7 @@ const BotChatRoom = ({ roomId }) => {
     // 메시지 내역 먼저 불러오기
     const fetchHistory = async () => {
       try {
-        const res = await fetch(`${BOT_API_URL}/history?room_id=${roomId}`, {
-          credentials: "include"
-        });
-        const data = await res.json();
+        const data = await fetchWithAuthBase(BOT_API_URL, `/history?room_id=${roomId}`, { method: "GET" });
         if (data.history) {
           // BotChatRoom의 메시지 형태에 맞게 변환
           setMessages(data.history.map(m => ({
@@ -54,7 +52,6 @@ const BotChatRoom = ({ roomId }) => {
         ...prev,
         {type: 'user', content: input.trim()},
       ]);
-      console.log(input.trim() + " 전송");
       socket.send(input.trim());
       setInput("");
     }
