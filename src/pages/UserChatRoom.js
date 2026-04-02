@@ -6,6 +6,7 @@ import { fetchWithAuth } from "../utils/api";
 const CHAT_WS_URL = process.env.REACT_APP_CHAT_WS_URL;
 const HISTORY_PAGE_SIZE = 30;
 const HISTORY_SCROLL_THRESHOLD = 80;
+const READ_FLUSH_DEBOUNCE_MS = 3000;
 
 const buildStompFrame = (command, headers = {}, body = "") => {
   const headerLines = Object.entries(headers).map(([key, value]) => `${key}:${value}`);
@@ -38,8 +39,9 @@ const parseStompFrame = (rawFrame) => {
 
 const normalizeMessage = (message) => ({
   messageId: message.messageId ?? message.id,
+  clientMessageId: message.clientMessageId ?? null,
   content: message.content ?? "",
-  senderId: message.senderId,
+  senderId: message.senderId ?? message.sender?.id ?? null,
   createdAt: message.createdAt ?? message.receivedAt ?? null,
 });
 
@@ -47,13 +49,35 @@ const mergeMessages = (messages) => {
   const mergedById = new Map();
   messages.forEach((message) => {
     const normalized = normalizeMessage(message);
-    if (normalized.messageId != null) {
-      mergedById.set(String(normalized.messageId), normalized);
-    }
+    const identityKey = normalized.clientMessageId != null
+      ? `client:${normalized.clientMessageId}`
+      : normalized.messageId != null
+        ? `message:${normalized.messageId}`
+        : `fallback:${mergedById.size}:${normalized.content}`;
+
+    const previous = mergedById.get(identityKey);
+    mergedById.set(identityKey, {
+      ...previous,
+      ...normalized,
+      senderId: normalized.senderId ?? previous?.senderId ?? null,
+      messageId: normalized.messageId ?? previous?.messageId ?? null,
+      clientMessageId: normalized.clientMessageId ?? previous?.clientMessageId ?? null,
+      createdAt: normalized.createdAt ?? previous?.createdAt ?? null,
+      content: normalized.content ?? previous?.content ?? "",
+    });
   });
 
   return Array.from(mergedById.values()).sort((left, right) => {
-    return Number(left.messageId) - Number(right.messageId);
+    if (left.messageId != null && right.messageId != null) {
+      return Number(left.messageId) - Number(right.messageId);
+    }
+    if (left.messageId != null) {
+      return 1;
+    }
+    if (right.messageId != null) {
+      return -1;
+    }
+    return 0;
   });
 };
 
@@ -78,21 +102,106 @@ const UserChatRoom = ({ roomId }) => {
   const roomIdRef = useRef(roomId);
   const isLoadingHistoryRef = useRef(false);
   const scrollInstructionRef = useRef({ type: "none" });
+  const pendingReadMessageIdRef = useRef(null);
+  const lastFlushedReadMessageIdRef = useRef(null);
+  const readFlushTimeoutRef = useRef(null);
+  const isFlushingReadRef = useRef(false);
   const { user } = useContext(AuthContext);
-  const myUserId = user?.userId || user?.id;
+  // 채팅 payload의 senderId는 DB PK(id) 기준이라, 로그인용 문자열 userId가 아니라 숫자 id로 비교해야 한다.
+  const myUserId = user?.id;
 
-  const markRoomAsRead = useCallback(async (messageId = null) => {
-    const query = messageId != null ? `?message_id=${messageId}` : "";
-    try {
-      await fetchWithAuth(`/chat/rooms/${roomId}/read${query}`, { method: "POST" });
-    } catch {
-      // 읽음 처리는 실패해도 채팅 사용 자체를 막지는 않는다.
+  const clearReadFlushTimer = useCallback(() => {
+    if (readFlushTimeoutRef.current != null) {
+      window.clearTimeout(readFlushTimeoutRef.current);
+      readFlushTimeoutRef.current = null;
     }
-  }, [roomId]);
+  }, []);
+
+  const flushPendingRead = useCallback(async ({ keepalive = false, roomIdOverride = null } = {}) => {
+    const targetMessageId = pendingReadMessageIdRef.current;
+    const targetRoomId = roomIdOverride ?? roomIdRef.current;
+
+    if (targetMessageId == null || targetRoomId == null) {
+      return;
+    }
+    if ((lastFlushedReadMessageIdRef.current ?? 0) >= targetMessageId) {
+      pendingReadMessageIdRef.current = null;
+      return;
+    }
+    if (isFlushingReadRef.current) {
+      return;
+    }
+
+    isFlushingReadRef.current = true;
+    pendingReadMessageIdRef.current = null;
+
+    try {
+      await fetchWithAuth(`/chat/rooms/${targetRoomId}/read?message_id=${targetMessageId}`, {
+        method: "POST",
+        keepalive,
+      });
+      lastFlushedReadMessageIdRef.current = targetMessageId;
+    } catch {
+      // 읽음 반영이 실패하면 다음 flush 때 다시 보낼 수 있도록 pending으로 되돌린다.
+      pendingReadMessageIdRef.current = Math.max(pendingReadMessageIdRef.current ?? 0, targetMessageId);
+    } finally {
+      isFlushingReadRef.current = false;
+
+      const remainingPendingMessageId = pendingReadMessageIdRef.current;
+      if (remainingPendingMessageId != null
+        && (lastFlushedReadMessageIdRef.current ?? 0) < remainingPendingMessageId) {
+        clearReadFlushTimer();
+        readFlushTimeoutRef.current = window.setTimeout(() => {
+          void flushPendingRead();
+        }, READ_FLUSH_DEBOUNCE_MS);
+      }
+    }
+  }, [clearReadFlushTimer]);
+
+  const queueReadFlush = useCallback((messageId, { immediate = false, keepalive = false, roomIdOverride = null } = {}) => {
+    if (messageId == null) {
+      return;
+    }
+
+    pendingReadMessageIdRef.current = Math.max(pendingReadMessageIdRef.current ?? 0, messageId);
+
+    if (immediate) {
+      clearReadFlushTimer();
+      void flushPendingRead({ keepalive, roomIdOverride });
+      return;
+    }
+
+    clearReadFlushTimer();
+    // active room에서는 새 메시지마다 바로 DB를 치지 않고, 잠깐 조용해졌을 때 한 번만 flush 한다.
+    readFlushTimeoutRef.current = window.setTimeout(() => {
+      void flushPendingRead();
+    }, READ_FLUSH_DEBOUNCE_MS);
+  }, [clearReadFlushTimer, flushPendingRead]);
 
   useEffect(() => {
     roomIdRef.current = roomId;
   }, [roomId]);
+
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        clearReadFlushTimer();
+        void flushPendingRead({ keepalive: true });
+      }
+    };
+
+    const handlePageHide = () => {
+      clearReadFlushTimer();
+      void flushPendingRead({ keepalive: true });
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("pagehide", handlePageHide);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("pagehide", handlePageHide);
+    };
+  }, [clearReadFlushTimer, flushPendingRead]);
 
   useLayoutEffect(() => {
     const messageList = messageListRef.current;
@@ -163,7 +272,10 @@ const UserChatRoom = ({ roomId }) => {
       setHasMoreHistory(Boolean(page.hasMore));
       setNextBeforeMessageId(page.nextBeforeMessageId ?? null);
       if (beforeMessageId == null) {
-        markRoomAsRead();
+        // 첫 히스토리 조회는 백엔드가 latestMessageId까지 이미 읽음 처리한다.
+        const latestHistoryMessageId = historyMessages.at(-1)?.messageId ?? null;
+        lastFlushedReadMessageIdRef.current = latestHistoryMessageId;
+        pendingReadMessageIdRef.current = null;
       }
     } catch {
       // ignore history loading errors here and keep room usable for realtime messages
@@ -173,10 +285,11 @@ const UserChatRoom = ({ roomId }) => {
         setIsLoadingHistory(false);
       }
     }
-  }, [markRoomAsRead, roomId]);
+  }, [roomId]);
 
   useEffect(() => {
     let isActive = true;
+    const previousRoomId = roomId;
 
     setMessages([]);
     setConnectionError(null);
@@ -184,6 +297,9 @@ const UserChatRoom = ({ roomId }) => {
     setNextBeforeMessageId(null);
     isLoadingHistoryRef.current = false;
     scrollInstructionRef.current = { type: "none" };
+    pendingReadMessageIdRef.current = null;
+    lastFlushedReadMessageIdRef.current = null;
+    clearReadFlushTimer();
 
     loadHistory();
 
@@ -226,7 +342,7 @@ const UserChatRoom = ({ roomId }) => {
               }
               setMessages((prev) => mergeMessages([...prev, data]));
               if (String(data.senderId) !== String(myUserId) && data.messageId != null) {
-                markRoomAsRead(data.messageId);
+                queueReadFlush(data.messageId);
               }
             } catch {
               // ignore malformed broadcast
@@ -256,12 +372,14 @@ const UserChatRoom = ({ roomId }) => {
       isActive = false;
       connectedRef.current = false;
       frameBufferRef.current = "";
+      clearReadFlushTimer();
+      void flushPendingRead({ keepalive: true, roomIdOverride: previousRoomId });
       if (ws.readyState === WebSocket.OPEN) {
         ws.send(buildStompFrame("DISCONNECT"));
       }
       ws.close();
     };
-  }, [roomId, loadHistory, markRoomAsRead, myUserId]);
+  }, [roomId, loadHistory, myUserId, queueReadFlush, clearReadFlushTimer, flushPendingRead]);
 
   const sendMessage = () => {
     const socket = socketRef.current;
@@ -269,10 +387,24 @@ const UserChatRoom = ({ roomId }) => {
       return;
     }
 
+    const messageText = input.trim();
+    const clientMessageId = uuidv4();
+
     const payload = JSON.stringify({
-      message: input.trim(),
-      clientMessageId: uuidv4(),
+      message: messageText,
+      clientMessageId,
     });
+
+    scrollInstructionRef.current = { type: "bottom" };
+    setMessages((prev) => mergeMessages([
+      ...prev,
+      {
+        clientMessageId,
+        content: messageText,
+        senderId: myUserId,
+        createdAt: Date.now(),
+      },
+    ]));
 
     socket.send(buildStompFrame("SEND", {
       destination: `/app/chat/rooms/${roomId}/messages`,
