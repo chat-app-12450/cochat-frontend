@@ -94,6 +94,16 @@ const mergeMessages = (messages) => {
   });
 };
 
+const mergeReadSeqSnapshot = (currentSnapshot, incomingSnapshot) => {
+  const nextSnapshot = { ...currentSnapshot };
+  Object.entries(incomingSnapshot ?? {}).forEach(([readerId, readSeq]) => {
+    const normalizedReadSeq = Number(readSeq ?? 0);
+    const previousReadSeq = Number(nextSnapshot[readerId] ?? 0);
+    nextSnapshot[readerId] = Math.max(previousReadSeq, normalizedReadSeq);
+  });
+  return nextSnapshot;
+};
+
 const isNearBottom = (element) => {
   if (!element) {
     return true;
@@ -267,6 +277,7 @@ const UserChatRoom = ({ roomId }) => {
 
       const page = data.response;
       const historyMessages = Array.isArray(page.messages) ? page.messages.map(normalizeMessage) : [];
+      const readSeqSnapshot = page.readSeqSnapshot ?? {};
 
       // 첫 로딩은 맨 아래로, 이전 페이지 로딩은 현재 읽던 위치를 유지한다.
       scrollInstructionRef.current = beforeMessageSeq == null
@@ -285,6 +296,10 @@ const UserChatRoom = ({ roomId }) => {
       });
       setHasMoreHistory(Boolean(page.hasMore));
       setNextBeforeMessageSeq(page.nextBeforeMessageSeq ?? null);
+      lastAppliedReadSeqByUserRef.current = mergeReadSeqSnapshot(
+        lastAppliedReadSeqByUserRef.current,
+        readSeqSnapshot
+      );
       if (beforeMessageSeq == null) {
         // 첫 히스토리 조회는 백엔드가 lastMessageSeq까지 이미 읽음 처리한다.
         const latestHistoryMessageSeq = historyMessages.at(-1)?.messageSeq ?? null;
