@@ -8,6 +8,7 @@ import ProductDetailPage from "./pages/ProductDetailPage";
 import ProductFormPage from "./pages/ProductFormPage";
 import MyProductsPage from "./pages/MyProductsPage";
 import ChatPage from "./pages/ChatPage";
+import OpenChatPage from "./pages/OpenChatPage";
 import AppShell from "./components/AppShell";
 import { fetchWithAuth } from "./utils/api";
 
@@ -173,6 +174,14 @@ const App = () => {
             element={
               <PrivateLayoutRoute>
                 <ChatPage />
+              </PrivateLayoutRoute>
+            }
+          />
+          <Route
+            path="/chat/open"
+            element={
+              <PrivateLayoutRoute>
+                <OpenChatPage />
               </PrivateLayoutRoute>
             }
           />

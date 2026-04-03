@@ -39,10 +39,12 @@ const parseStompFrame = (rawFrame) => {
 
 const normalizeMessage = (message) => ({
   messageId: message.messageId ?? message.id,
+  messageSeq: message.messageSeq ?? null,
   clientMessageId: message.clientMessageId ?? null,
   content: message.content ?? "",
   senderId: message.senderId ?? message.sender?.id ?? null,
   createdAt: message.createdAt ?? message.receivedAt ?? null,
+  unreadCount: message.unreadCount ?? null,
 });
 
 const mergeMessages = (messages) => {
@@ -61,13 +63,24 @@ const mergeMessages = (messages) => {
       ...normalized,
       senderId: normalized.senderId ?? previous?.senderId ?? null,
       messageId: normalized.messageId ?? previous?.messageId ?? null,
+      messageSeq: normalized.messageSeq ?? previous?.messageSeq ?? null,
       clientMessageId: normalized.clientMessageId ?? previous?.clientMessageId ?? null,
       createdAt: normalized.createdAt ?? previous?.createdAt ?? null,
       content: normalized.content ?? previous?.content ?? "",
+      unreadCount: normalized.unreadCount ?? previous?.unreadCount ?? null,
     });
   });
 
   return Array.from(mergedById.values()).sort((left, right) => {
+    if (left.messageSeq != null && right.messageSeq != null) {
+      return Number(left.messageSeq) - Number(right.messageSeq);
+    }
+    if (left.messageSeq != null) {
+      return 1;
+    }
+    if (right.messageSeq != null) {
+      return -1;
+    }
     if (left.messageId != null && right.messageId != null) {
       return Number(left.messageId) - Number(right.messageId);
     }
@@ -93,7 +106,7 @@ const UserChatRoom = ({ roomId }) => {
   const [messages, setMessages] = useState([]);
   const [connectionError, setConnectionError] = useState(null);
   const [hasMoreHistory, setHasMoreHistory] = useState(true);
-  const [nextBeforeMessageId, setNextBeforeMessageId] = useState(null);
+  const [nextBeforeMessageSeq, setNextBeforeMessageSeq] = useState(null);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const socketRef = useRef(null);
   const connectedRef = useRef(false);
@@ -102,10 +115,11 @@ const UserChatRoom = ({ roomId }) => {
   const roomIdRef = useRef(roomId);
   const isLoadingHistoryRef = useRef(false);
   const scrollInstructionRef = useRef({ type: "none" });
-  const pendingReadMessageIdRef = useRef(null);
-  const lastFlushedReadMessageIdRef = useRef(null);
+  const pendingReadSeqRef = useRef(null);
+  const lastFlushedReadSeqRef = useRef(null);
   const readFlushTimeoutRef = useRef(null);
   const isFlushingReadRef = useRef(false);
+  const lastAppliedReadSeqByUserRef = useRef({});
   const { user } = useContext(AuthContext);
   // 채팅 payload의 senderId는 DB PK(id) 기준이라, 로그인용 문자열 userId가 아니라 숫자 id로 비교해야 한다.
   const myUserId = user?.id;
@@ -118,14 +132,14 @@ const UserChatRoom = ({ roomId }) => {
   }, []);
 
   const flushPendingRead = useCallback(async ({ keepalive = false, roomIdOverride = null } = {}) => {
-    const targetMessageId = pendingReadMessageIdRef.current;
+    const targetReadSeq = pendingReadSeqRef.current;
     const targetRoomId = roomIdOverride ?? roomIdRef.current;
 
-    if (targetMessageId == null || targetRoomId == null) {
+    if (targetReadSeq == null || targetRoomId == null) {
       return;
     }
-    if ((lastFlushedReadMessageIdRef.current ?? 0) >= targetMessageId) {
-      pendingReadMessageIdRef.current = null;
+    if ((lastFlushedReadSeqRef.current ?? 0) >= targetReadSeq) {
+      pendingReadSeqRef.current = null;
       return;
     }
     if (isFlushingReadRef.current) {
@@ -133,23 +147,23 @@ const UserChatRoom = ({ roomId }) => {
     }
 
     isFlushingReadRef.current = true;
-    pendingReadMessageIdRef.current = null;
+    pendingReadSeqRef.current = null;
 
     try {
-      await fetchWithAuth(`/chat/rooms/${targetRoomId}/read?message_id=${targetMessageId}`, {
+      await fetchWithAuth(`/chat/rooms/${targetRoomId}/read?read_upto_seq=${targetReadSeq}`, {
         method: "POST",
         keepalive,
       });
-      lastFlushedReadMessageIdRef.current = targetMessageId;
+      lastFlushedReadSeqRef.current = targetReadSeq;
     } catch {
       // 읽음 반영이 실패하면 다음 flush 때 다시 보낼 수 있도록 pending으로 되돌린다.
-      pendingReadMessageIdRef.current = Math.max(pendingReadMessageIdRef.current ?? 0, targetMessageId);
+      pendingReadSeqRef.current = Math.max(pendingReadSeqRef.current ?? 0, targetReadSeq);
     } finally {
       isFlushingReadRef.current = false;
 
-      const remainingPendingMessageId = pendingReadMessageIdRef.current;
-      if (remainingPendingMessageId != null
-        && (lastFlushedReadMessageIdRef.current ?? 0) < remainingPendingMessageId) {
+      const remainingPendingReadSeq = pendingReadSeqRef.current;
+      if (remainingPendingReadSeq != null
+        && (lastFlushedReadSeqRef.current ?? 0) < remainingPendingReadSeq) {
         clearReadFlushTimer();
         readFlushTimeoutRef.current = window.setTimeout(() => {
           void flushPendingRead();
@@ -158,12 +172,12 @@ const UserChatRoom = ({ roomId }) => {
     }
   }, [clearReadFlushTimer]);
 
-  const queueReadFlush = useCallback((messageId, { immediate = false, keepalive = false, roomIdOverride = null } = {}) => {
-    if (messageId == null) {
+  const queueReadFlush = useCallback((messageSeq, { immediate = false, keepalive = false, roomIdOverride = null } = {}) => {
+    if (messageSeq == null) {
       return;
     }
 
-    pendingReadMessageIdRef.current = Math.max(pendingReadMessageIdRef.current ?? 0, messageId);
+    pendingReadSeqRef.current = Math.max(pendingReadSeqRef.current ?? 0, messageSeq);
 
     if (immediate) {
       clearReadFlushTimer();
@@ -224,7 +238,7 @@ const UserChatRoom = ({ roomId }) => {
     scrollInstructionRef.current = { type: "none" };
   }, [messages]);
 
-  const loadHistory = useCallback(async (beforeMessageId = null) => {
+  const loadHistory = useCallback(async (beforeMessageSeq = null) => {
     if (isLoadingHistoryRef.current) {
       return;
     }
@@ -242,8 +256,8 @@ const UserChatRoom = ({ roomId }) => {
         room_id: String(requestedRoomId),
         size: String(HISTORY_PAGE_SIZE),
       });
-      if (beforeMessageId != null) {
-        query.set("before_message_id", String(beforeMessageId));
+      if (beforeMessageSeq != null) {
+        query.set("before_message_seq", String(beforeMessageSeq));
       }
 
       const data = await fetchWithAuth(`/chat/history?${query.toString()}`, { method: "GET" });
@@ -255,7 +269,7 @@ const UserChatRoom = ({ roomId }) => {
       const historyMessages = Array.isArray(page.messages) ? page.messages.map(normalizeMessage) : [];
 
       // 첫 로딩은 맨 아래로, 이전 페이지 로딩은 현재 읽던 위치를 유지한다.
-      scrollInstructionRef.current = beforeMessageId == null
+      scrollInstructionRef.current = beforeMessageSeq == null
         ? { type: "bottom" }
         : {
             type: "preserve",
@@ -264,18 +278,18 @@ const UserChatRoom = ({ roomId }) => {
           };
 
       setMessages((prev) => {
-        if (beforeMessageId == null) {
+        if (beforeMessageSeq == null) {
           return mergeMessages(historyMessages);
         }
         return mergeMessages([...historyMessages, ...prev]);
       });
       setHasMoreHistory(Boolean(page.hasMore));
-      setNextBeforeMessageId(page.nextBeforeMessageId ?? null);
-      if (beforeMessageId == null) {
-        // 첫 히스토리 조회는 백엔드가 latestMessageId까지 이미 읽음 처리한다.
-        const latestHistoryMessageId = historyMessages.at(-1)?.messageId ?? null;
-        lastFlushedReadMessageIdRef.current = latestHistoryMessageId;
-        pendingReadMessageIdRef.current = null;
+      setNextBeforeMessageSeq(page.nextBeforeMessageSeq ?? null);
+      if (beforeMessageSeq == null) {
+        // 첫 히스토리 조회는 백엔드가 lastMessageSeq까지 이미 읽음 처리한다.
+        const latestHistoryMessageSeq = historyMessages.at(-1)?.messageSeq ?? null;
+        lastFlushedReadSeqRef.current = latestHistoryMessageSeq;
+        pendingReadSeqRef.current = null;
       }
     } catch {
       // ignore history loading errors here and keep room usable for realtime messages
@@ -294,11 +308,12 @@ const UserChatRoom = ({ roomId }) => {
     setMessages([]);
     setConnectionError(null);
     setHasMoreHistory(true);
-    setNextBeforeMessageId(null);
+    setNextBeforeMessageSeq(null);
     isLoadingHistoryRef.current = false;
     scrollInstructionRef.current = { type: "none" };
-    pendingReadMessageIdRef.current = null;
-    lastFlushedReadMessageIdRef.current = null;
+    pendingReadSeqRef.current = null;
+    lastFlushedReadSeqRef.current = null;
+    lastAppliedReadSeqByUserRef.current = {};
     clearReadFlushTimer();
 
     loadHistory();
@@ -336,13 +351,51 @@ const UserChatRoom = ({ roomId }) => {
 
           if (frame.command === "MESSAGE") {
             try {
-              const data = normalizeMessage(JSON.parse(frame.body));
+              const rawData = JSON.parse(frame.body);
+              if (rawData?.type === "READ") {
+                const readerId = rawData.readerId;
+                const newReadSeq = Number(rawData.newReadSeq ?? 0);
+                if (readerId == null || newReadSeq <= 0 || String(readerId) === String(myUserId)) {
+                  return;
+                }
+
+                const readerKey = String(readerId);
+                const previousAppliedReadSeq = Number(lastAppliedReadSeqByUserRef.current[readerKey] ?? 0);
+                if (newReadSeq <= previousAppliedReadSeq) {
+                  return;
+                }
+
+                const previousReadSeq = Math.max(
+                  previousAppliedReadSeq,
+                  Number(rawData.previousReadSeq ?? 0)
+                );
+
+                setMessages((prev) => prev.map((message) => {
+                  if (message.messageSeq == null) {
+                    return message;
+                  }
+                  if (String(message.senderId) === readerKey) {
+                    return message;
+                  }
+                  if (message.messageSeq <= previousReadSeq || message.messageSeq > newReadSeq) {
+                    return message;
+                  }
+                  return {
+                    ...message,
+                    unreadCount: Math.max(Number(message.unreadCount ?? 0) - 1, 0),
+                  };
+                }));
+                lastAppliedReadSeqByUserRef.current[readerKey] = newReadSeq;
+                return;
+              }
+
+              const data = normalizeMessage(rawData);
               if (isNearBottom(messageListRef.current)) {
                 scrollInstructionRef.current = { type: "bottom" };
               }
               setMessages((prev) => mergeMessages([...prev, data]));
-              if (String(data.senderId) !== String(myUserId) && data.messageId != null) {
-                queueReadFlush(data.messageId);
+              if (String(data.senderId) !== String(myUserId) && data.messageSeq != null) {
+                queueReadFlush(data.messageSeq);
               }
             } catch {
               // ignore malformed broadcast
@@ -403,6 +456,8 @@ const UserChatRoom = ({ roomId }) => {
         content: messageText,
         senderId: myUserId,
         createdAt: Date.now(),
+        messageSeq: null,
+        unreadCount: null,
       },
     ]));
 
@@ -415,12 +470,12 @@ const UserChatRoom = ({ roomId }) => {
 
   const handleMessageScroll = () => {
     const messageList = messageListRef.current;
-    if (!messageList || isLoadingHistory || !hasMoreHistory || nextBeforeMessageId == null) {
+    if (!messageList || isLoadingHistory || !hasMoreHistory || nextBeforeMessageSeq == null) {
       return;
     }
 
     if (messageList.scrollTop <= HISTORY_SCROLL_THRESHOLD) {
-      loadHistory(nextBeforeMessageId);
+      loadHistory(nextBeforeMessageSeq);
     }
   };
 
@@ -443,13 +498,26 @@ const UserChatRoom = ({ roomId }) => {
         )}
         {messages.map((m, idx) => {
           const isMine = String(m.senderId) === String(myUserId);
+          const unreadLabel = m.unreadCount == null
+            ? "전송 중..."
+            : m.unreadCount > 0
+              ? `안읽음 ${m.unreadCount}`
+              : "읽음";
           return (
             <div
               key={m.messageId ?? idx}
               className={`message-row ${isMine ? "message-row--mine" : ""}`}
             >
               <div className={`message-bubble ${isMine ? "message-bubble--mine" : ""}`}>
-                {isMine ? "나" : `User ${m.senderId ?? "?"}`} : {m.content ?? "[내용 없음]"}
+                <div className="message-bubble__author">
+                  {isMine ? "나" : `User ${m.senderId ?? "?"}`}
+                </div>
+                <div className="message-bubble__content">
+                  {m.content ?? "[내용 없음]"}
+                </div>
+                <div className="message-bubble__meta">
+                  {unreadLabel}
+                </div>
               </div>
             </div>
           );

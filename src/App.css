@@ -492,6 +492,18 @@ textarea {
   gap: 8px;
 }
 
+.chat-room-card__type {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: rgba(15, 118, 110, 0.12);
+  color: var(--accent-strong);
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .chat-room-card__unread {
   display: inline-flex;
   align-items: center;
@@ -521,6 +533,107 @@ textarea {
   gap: 18px;
   min-height: 0;
   overflow: hidden;
+}
+
+.group-room-panel {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 18px;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.group-room-panel__create,
+.group-room-panel__search {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.68);
+}
+
+.group-room-panel__grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+}
+
+.group-room-panel__grid--triple {
+  grid-template-columns: minmax(0, 1fr) 180px auto;
+}
+
+.group-room-panel__textarea {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 14px 16px;
+  resize: vertical;
+  background: rgba(255, 255, 255, 0.82);
+}
+
+.group-room-panel__search {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.group-room-panel__list {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.group-room-panel__section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+}
+
+.group-room-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.76);
+}
+
+.group-room-card__topline {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.group-room-card__actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.group-room-card__meta-text {
+  display: block;
+  margin-top: 4px;
+}
+
+.group-room-card__description,
+.group-room-card__participants {
+  margin: 0;
+  color: var(--muted);
+}
+
+.group-room-card__footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
 }
 
 .chat-stage--single {
@@ -592,6 +705,22 @@ textarea {
   margin-left: auto;
   background: rgba(15, 118, 110, 0.14);
   color: var(--accent-strong);
+}
+
+.message-bubble__author {
+  font-size: 12px;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+
+.message-bubble__content {
+  white-space: pre-wrap;
+}
+
+.message-bubble__meta {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--muted);
 }
 
 .chat-stage__header {
@@ -704,6 +833,15 @@ textarea {
     height: auto;
     max-height: none;
     min-height: auto;
+  }
+
+  .group-room-panel__grid,
+  .group-room-panel__grid--triple,
+  .group-room-panel__search,
+  .group-room-card__topline,
+  .group-room-card__footer {
+    grid-template-columns: 1fr;
+    flex-direction: column;
   }
 
   .chat-room-list,

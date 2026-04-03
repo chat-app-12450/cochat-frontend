@@ -40,6 +40,9 @@ const AppShell = ({ children }) => {
           <NavLink to="/chat/rooms" className={({ isActive }) => `app-nav__link ${isActive ? "active" : ""}`}>
             채팅방
           </NavLink>
+          <NavLink to="/chat/open" className={({ isActive }) => `app-nav__link ${isActive ? "active" : ""}`}>
+            오픈채팅
+          </NavLink>
         </nav>
 
         <div className="app-userbox">

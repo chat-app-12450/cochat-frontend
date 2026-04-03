@@ -53,10 +53,19 @@ const ChatRoomListPanel = ({ rooms, currentRoomId, loading, error }) => {
                       {room.unreadCount > 99 ? "99+" : room.unreadCount}
                     </span>
                   )}
+                  {room.type === "GROUP" && (
+                    <span className="chat-room-card__type">
+                      그룹 · {room.participantCount}명
+                    </span>
+                  )}
                   {room.product?.status && <ProductStatusBadge status={room.product.status} />}
                 </div>
               </div>
-              <p className="chat-room-card__product">{room.product?.title ?? "일반 대화"}</p>
+              <p className="chat-room-card__product">
+                {room.type === "GROUP"
+                  ? room.description || "공개 그룹 채팅"
+                  : room.product?.title ?? "일반 대화"}
+              </p>
               <p className="chat-room-card__message">
                 {room.lastMessage?.content ?? "아직 메시지가 없습니다."}
               </p>
