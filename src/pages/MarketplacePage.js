@@ -3,6 +3,7 @@ import ProductCard from "../components/ProductCard";
 import { fetchWithAuth } from "../utils/api";
 
 const STATUS_OPTIONS = ["ALL", "ON_SALE", "RESERVED", "SOLD"];
+const VIEW_OPTIONS = ["LATEST", "NEARBY"];
 const STATUS_LABELS = {
   ALL: "전체",
   ON_SALE: "판매중",
@@ -11,11 +12,37 @@ const STATUS_LABELS = {
 };
 
 const MarketplacePage = () => {
+  const [viewMode, setViewMode] = useState("LATEST");
   const [status, setStatus] = useState("ALL");
+  const [radiusKm, setRadiusKm] = useState(3);
   const [page, setPage] = useState(0);
   const [productPage, setProductPage] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [verifiedLocation, setVerifiedLocation] = useState(null);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadVerifiedLocation = async () => {
+      try {
+        const response = await fetchWithAuth("/user/location", { method: "GET" });
+        if (!isMounted || !response.success) {
+          return;
+        }
+        setVerifiedLocation(response.response ?? null);
+      } catch {
+        if (isMounted) {
+          setVerifiedLocation(null);
+        }
+      }
+    };
+
+    loadVerifiedLocation();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   useEffect(() => {
     let isMounted = true;
@@ -31,8 +58,15 @@ const MarketplacePage = () => {
         if (status !== "ALL") {
           query.set("status", status);
         }
+        if (viewMode === "NEARBY") {
+          query.set("radius_km", String(radiusKm));
+        }
 
-        const response = await fetchWithAuth(`/products?${query.toString()}`, { method: "GET" });
+        const endpoint = viewMode === "NEARBY"
+          ? `/products/nearby?${query.toString()}`
+          : `/products?${query.toString()}`;
+
+        const response = await fetchWithAuth(endpoint, { method: "GET" });
         if (!isMounted) {
           return;
         }
@@ -58,7 +92,7 @@ const MarketplacePage = () => {
     return () => {
       isMounted = false;
     };
-  }, [page, status]);
+  }, [page, radiusKm, status, viewMode]);
 
   return (
     <div className="page-section">
@@ -69,8 +103,28 @@ const MarketplacePage = () => {
           <p>
             실시간 1:1 채팅으로 바로 거래를 이어갈 수 있는 상품만 모았습니다.
           </p>
+          {viewMode === "NEARBY" && (
+            <p className="muted-text">
+              {verifiedLocation
+                ? `인증 위치 기준 ${radiusKm}km 안의 상품을 거리순으로 보여줍니다.`
+                : "근처 상품을 보려면 먼저 위치 인증이 필요합니다."}
+            </p>
+          )}
         </div>
         <div className="toolbar-chip-row">
+          {VIEW_OPTIONS.map((option) => (
+            <button
+              key={option}
+              type="button"
+              className={`filter-chip ${viewMode === option ? "filter-chip--active" : ""}`}
+              onClick={() => {
+                setViewMode(option);
+                setPage(0);
+              }}
+            >
+              {option === "LATEST" ? "최신순" : "근처 상품"}
+            </button>
+          ))}
           {STATUS_OPTIONS.map((option) => (
             <button
               key={option}
@@ -82,6 +136,19 @@ const MarketplacePage = () => {
               }}
           >
               {STATUS_LABELS[option]}
+            </button>
+          ))}
+          {viewMode === "NEARBY" && [1, 3, 5, 10].map((option) => (
+            <button
+              key={`radius-${option}`}
+              type="button"
+              className={`filter-chip ${radiusKm === option ? "filter-chip--active" : ""}`}
+              onClick={() => {
+                setRadiusKm(option);
+                setPage(0);
+              }}
+            >
+              {option}km
             </button>
           ))}
         </div>
