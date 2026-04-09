@@ -2,8 +2,7 @@ import React, { useCallback, useContext, useEffect, useLayoutEffect, useRef, use
 import { v4 as uuidv4 } from "uuid";
 import { AuthContext } from "../App";
 import { fetchWithAuth } from "../utils/api";
-
-const CHAT_WS_URL = process.env.REACT_APP_CHAT_WS_URL;
+import { CHAT_WS_URL } from "../config/runtime";
 const HISTORY_PAGE_SIZE = 30;
 const HISTORY_SCROLL_THRESHOLD = 80;
 const READ_FLUSH_DEBOUNCE_MS = 3000;

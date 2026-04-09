@@ -1,6 +1,5 @@
 import Cookies from "js-cookie";
-
-export const API_BASE_URL = process.env.REACT_APP_CHAT_API_URL; // Change for production
+import { API_BASE_URL } from "../config/runtime";
 const REFRESH_ENDPOINT = "/user/refresh";
 
 const buildHeaders = (options = {}) => {
