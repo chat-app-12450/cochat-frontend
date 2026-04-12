@@ -1,4 +1,6 @@
-import React, { useEffect, useState } from "react";
+import React, { useContext, useEffect, useState } from "react";
+import { Link } from "react-router-dom";
+import { LocationContext } from "../App";
 import ProductCard from "../components/ProductCard";
 import { fetchWithAuth } from "../utils/api";
 
@@ -19,35 +21,31 @@ const MarketplacePage = () => {
   const [productPage, setProductPage] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [verifiedLocation, setVerifiedLocation] = useState(null);
-
-  useEffect(() => {
-    let isMounted = true;
-
-    const loadVerifiedLocation = async () => {
-      try {
-        const response = await fetchWithAuth("/user/location", { method: "GET" });
-        if (!isMounted || !response.success) {
-          return;
-        }
-        setVerifiedLocation(response.response ?? null);
-      } catch {
-        if (isMounted) {
-          setVerifiedLocation(null);
-        }
-      }
-    };
-
-    loadVerifiedLocation();
-    return () => {
-      isMounted = false;
-    };
-  }, []);
+  const { verifiedLocation, locationLoading } = useContext(LocationContext);
 
   useEffect(() => {
     let isMounted = true;
 
     const loadProducts = async () => {
+      if (viewMode === "NEARBY" && locationLoading) {
+        return;
+      }
+
+      if (viewMode === "NEARBY" && !verifiedLocation) {
+        if (isMounted) {
+          setError(null);
+          setLoading(false);
+          setProductPage({
+            products: [],
+            page: 0,
+            totalPages: 0,
+            hasPrevious: false,
+            hasNext: false,
+          });
+        }
+        return;
+      }
+
       setLoading(true);
       setError(null);
       try {
@@ -92,7 +90,7 @@ const MarketplacePage = () => {
     return () => {
       isMounted = false;
     };
-  }, [page, radiusKm, status, viewMode]);
+  }, [page, radiusKm, status, viewMode, verifiedLocation, locationLoading]);
 
   return (
     <div className="page-section">
@@ -104,11 +102,22 @@ const MarketplacePage = () => {
             실시간 1:1 채팅으로 바로 거래를 이어갈 수 있는 상품만 모았습니다.
           </p>
           {viewMode === "NEARBY" && (
-            <p className="muted-text">
-              {verifiedLocation
-                ? `인증 위치 기준 ${radiusKm}km 안의 상품을 거리순으로 보여줍니다.`
-                : "근처 상품을 보려면 먼저 위치 인증이 필요합니다."}
-            </p>
+            <div className="location-summary-card location-summary-card--inline">
+              <div className="location-summary-card__header">
+                <p className="muted-text">
+                  {locationLoading
+                    ? "현재 위치 인증 상태를 확인하는 중입니다."
+                    : verifiedLocation
+                      ? `인증 위치 기준 ${radiusKm}km 안의 상품을 거리순으로 보여줍니다.`
+                      : "근처 상품을 보려면 먼저 위치 인증이 필요합니다."}
+                </p>
+                {!locationLoading && !verifiedLocation && (
+                  <Link to="/location" className="ghost-button">
+                    위치 인증하러 가기
+                  </Link>
+                )}
+              </div>
+            </div>
           )}
         </div>
         <div className="toolbar-chip-row">
@@ -159,8 +168,12 @@ const MarketplacePage = () => {
 
       {!loading && !error && productPage?.products?.length === 0 && (
         <div className="empty-state">
-          <h2>등록된 상품이 없습니다</h2>
-          <p>가장 먼저 상품을 등록해서 거래를 시작해보세요.</p>
+          <h2>{viewMode === "NEARBY" ? "근처 상품을 불러올 수 없습니다" : "등록된 상품이 없습니다"}</h2>
+          <p>
+            {viewMode === "NEARBY" && !verifiedLocation
+              ? "위치 인증을 완료하면 인증 위치 기준으로 근처 상품을 보여줍니다."
+              : "가장 먼저 상품을 등록해서 거래를 시작해보세요."}
+          </p>
         </div>
       )}
 

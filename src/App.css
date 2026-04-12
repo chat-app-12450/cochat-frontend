@@ -335,6 +335,38 @@ textarea {
   padding: 24px;
 }
 
+.location-verification-card {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.location-summary-card {
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.68);
+}
+
+.location-summary-card--inline {
+  margin-top: 14px;
+}
+
+.location-summary-card__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.location-summary-card__header p {
+  margin: 6px 0 0;
+}
+
+.location-action-row {
+  justify-content: flex-start;
+}
+
 .editor-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -839,7 +871,8 @@ textarea {
   .group-room-panel__grid--triple,
   .group-room-panel__search,
   .group-room-card__topline,
-  .group-room-card__footer {
+  .group-room-card__footer,
+  .location-summary-card__header {
     grid-template-columns: 1fr;
     flex-direction: column;
   }

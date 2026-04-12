@@ -1,4 +1,6 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
+import { LocationContext } from "../App";
 import { fetchWithAuth } from "../utils/api";
 
 const DEFAULT_RADIUS_KM = 3;
@@ -43,55 +45,12 @@ const OpenGroupRoomPanel = ({ onOpenRoom }) => {
   const [error, setError] = useState(null);
   const [createName, setCreateName] = useState("");
   const [createDescription, setCreateDescription] = useState("");
-  const [locationLabel, setLocationLabel] = useState("");
   const [maxParticipants, setMaxParticipants] = useState(50);
   const [radiusKm, setRadiusKm] = useState(DEFAULT_RADIUS_KM);
-  const [currentLocation, setCurrentLocation] = useState(null);
-  const [verifiedLocation, setVerifiedLocation] = useState(null);
-  const [locationStatus, setLocationStatus] = useState("현재 위치를 불러오면 근처 오픈채팅만 검색할 수 있습니다.");
   const [isCreating, setIsCreating] = useState(false);
-  const [isLocating, setIsLocating] = useState(false);
-  const [isVerifying, setIsVerifying] = useState(false);
   const [joiningRoomId, setJoiningRoomId] = useState(null);
   const [leavingRoomId, setLeavingRoomId] = useState(null);
-
-  const requestCurrentLocation = useCallback(() => new Promise((resolve, reject) => {
-    if (!navigator.geolocation) {
-      reject(new Error("이 브라우저에서는 위치 기능을 지원하지 않습니다."));
-      return;
-    }
-
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        resolve({
-          latitude: position.coords.latitude,
-          longitude: position.coords.longitude,
-        });
-      },
-      () => reject(new Error("현재 위치를 가져오지 못했습니다.")),
-      {
-        enableHighAccuracy: true,
-        timeout: 10000,
-      }
-    );
-  }), []);
-
-  const loadVerifiedLocation = useCallback(async () => {
-    try {
-      const response = await fetchWithAuth("/user/location", { method: "GET" });
-      if (!response.success) {
-        return;
-      }
-
-      const verified = response.response ?? null;
-      setVerifiedLocation(verified);
-      if (verified?.locationLabel) {
-        setLocationLabel(verified.locationLabel);
-      }
-    } catch {
-      // verified location is optional on first load
-    }
-  }, []);
+  const { verifiedLocation, locationLoading } = useContext(LocationContext);
 
   const loadJoinedRooms = useCallback(async () => {
     setJoinedLoading(true);
@@ -141,76 +100,34 @@ const OpenGroupRoomPanel = ({ onOpenRoom }) => {
     }
   }, []);
 
+  const searchLocation = useMemo(() => (
+    verifiedLocation?.latitude != null && verifiedLocation?.longitude != null
+      ? verifiedLocation
+      : null
+  ), [verifiedLocation]);
+
+  const locationStatus = useMemo(() => {
+    if (locationLoading) {
+      return "위치 인증 상태를 확인하는 중입니다.";
+    }
+
+    if (!verifiedLocation) {
+      return "위치 인증 페이지에서 현재 위치를 인증하면 오픈채팅 생성과 근처 검색에 자동으로 사용됩니다.";
+    }
+
+    return `인증 위치: ${verifiedLocation.locationLabel || "좌표 인증 완료"} · 반경 ${radiusKm}km 기준으로 근처 오픈채팅을 찾습니다.`;
+  }, [locationLoading, verifiedLocation, radiusKm]);
+
   useEffect(() => {
     setError(null);
     void loadJoinedRooms();
-    void loadSearchRooms(searchKeyword, currentLocation, radiusKm);
-  }, [loadJoinedRooms, loadSearchRooms, searchKeyword, currentLocation, radiusKm]);
-
-  useEffect(() => {
-    void loadVerifiedLocation();
-  }, [loadVerifiedLocation]);
+    void loadSearchRooms(searchKeyword, searchLocation, radiusKm);
+  }, [loadJoinedRooms, loadSearchRooms, searchKeyword, searchLocation, radiusKm]);
 
   const joinedRoomIds = useMemo(
     () => new Set(joinedRooms.map((room) => room.id)),
     [joinedRooms]
   );
-
-  const handleUseCurrentLocation = useCallback(() => {
-    setIsLocating(true);
-    setError(null);
-    setLocationStatus("현재 위치를 불러오는 중입니다...");
-
-    requestCurrentLocation()
-      .then((nextLocation) => {
-        setCurrentLocation(nextLocation);
-        setLocationStatus(
-          `현재 위치가 설정되었습니다. (${nextLocation.latitude.toFixed(4)}, ${nextLocation.longitude.toFixed(4)})`
-        );
-      })
-      .catch(() => {
-        setLocationStatus("위치 권한이 없거나 위치를 가져오지 못했습니다.");
-        setError("현재 위치를 가져오지 못했습니다. 브라우저 위치 권한을 확인해주세요.");
-      })
-      .finally(() => {
-        setIsLocating(false);
-      });
-  }, [requestCurrentLocation]);
-
-  const handleVerifyLocation = useCallback(async () => {
-    const trimmedLocationLabel = locationLabel.trim();
-    setIsVerifying(true);
-    setError(null);
-
-    try {
-      const location = currentLocation ?? await requestCurrentLocation();
-      setCurrentLocation(location);
-
-      const response = await fetchWithAuth("/user/location/verify", {
-        method: "POST",
-        body: JSON.stringify({
-          locationLabel: trimmedLocationLabel || null,
-          latitude: location.latitude,
-          longitude: location.longitude,
-        }),
-      });
-
-      if (!response.success) {
-        setError(response.error?.message ?? "위치 인증에 실패했습니다.");
-        return;
-      }
-
-      setVerifiedLocation(response.response);
-      if (response.response?.locationLabel) {
-        setLocationLabel(response.response.locationLabel);
-      }
-      setLocationStatus("현재 위치가 인증되었습니다. 이후 상품/오픈채팅 생성 시 자동으로 사용됩니다.");
-    } catch {
-      setError("위치 인증에 실패했습니다. 브라우저 위치 권한을 확인해주세요.");
-    } finally {
-      setIsVerifying(false);
-    }
-  }, [currentLocation, locationLabel, requestCurrentLocation]);
 
   const handleSearchSubmit = async (event) => {
     event.preventDefault();
@@ -231,8 +148,13 @@ const OpenGroupRoomPanel = ({ onOpenRoom }) => {
       return;
     }
 
+    if (locationLoading) {
+      setError("위치 인증 상태를 확인하는 중입니다. 잠시 후 다시 시도해주세요.");
+      return;
+    }
+
     if (!verifiedLocation) {
-      setError("오픈채팅을 만들기 전에 위치 인증을 먼저 해주세요.");
+      setError("오픈채팅을 만들기 전에 위치 인증 페이지에서 현재 위치를 먼저 인증해주세요.");
       return;
     }
 
@@ -256,10 +178,9 @@ const OpenGroupRoomPanel = ({ onOpenRoom }) => {
 
       setCreateName("");
       setCreateDescription("");
-      setLocationLabel("");
       setMaxParticipants(50);
       await loadJoinedRooms();
-      await loadSearchRooms(searchKeyword, currentLocation, radiusKm);
+      await loadSearchRooms(searchKeyword, searchLocation, radiusKm);
       onOpenRoom(response.response.id);
     } catch {
       setError("오픈채팅 생성 요청에 실패했습니다.");
@@ -283,7 +204,7 @@ const OpenGroupRoomPanel = ({ onOpenRoom }) => {
       }
 
       await loadJoinedRooms();
-      await loadSearchRooms(searchKeyword, currentLocation, radiusKm);
+      await loadSearchRooms(searchKeyword, searchLocation, radiusKm);
       onOpenRoom(response.response.id);
     } catch {
       setError("오픈채팅 참여 요청에 실패했습니다.");
@@ -307,7 +228,7 @@ const OpenGroupRoomPanel = ({ onOpenRoom }) => {
       }
 
       await loadJoinedRooms();
-      await loadSearchRooms(searchKeyword, currentLocation, radiusKm);
+      await loadSearchRooms(searchKeyword, searchLocation, radiusKm);
     } catch {
       setError("오픈채팅 나가기 요청에 실패했습니다.");
     } finally {
@@ -346,28 +267,19 @@ const OpenGroupRoomPanel = ({ onOpenRoom }) => {
             {isCreating ? "생성 중..." : "오픈채팅 만들기"}
           </button>
         </div>
-        <div className="group-room-panel__grid group-room-panel__grid--triple">
-          <input
-            className="message-panel__input"
-            value={locationLabel}
-            onChange={(event) => setLocationLabel(event.target.value)}
-            placeholder="예: 성수동, 건대입구, 왕십리"
-            maxLength={120}
-          />
-          <button type="button" className="ghost-button" onClick={handleUseCurrentLocation} disabled={isLocating}>
-            {isLocating ? "위치 확인 중..." : "현재 위치 사용"}
-          </button>
-          <button type="button" className="ghost-button" onClick={handleVerifyLocation} disabled={isVerifying}>
-            {isVerifying ? "위치 인증 중..." : "현재 위치 인증"}
-          </button>
-        </div>
-        <div className="group-room-panel__grid group-room-panel__grid--triple">
-          <span className="muted-text group-room-panel__status-chip">
-            {currentLocation ? "위치 설정 완료" : "위치 미설정"}
-          </span>
-          <span className="muted-text group-room-panel__status-chip">
-            {verifiedLocation ? `인증 위치: ${verifiedLocation.locationLabel || "좌표 인증 완료"}` : "위치 미인증"}
-          </span>
+        <div className="location-summary-card">
+          <div className="location-summary-card__header">
+            <div>
+              <strong>위치 인증 상태</strong>
+              <p className="muted-text">{locationStatus}</p>
+            </div>
+            <Link
+              to="/location"
+              className={verifiedLocation ? "ghost-button" : "primary-button"}
+            >
+              {verifiedLocation ? "위치 다시 인증" : "위치 인증하러 가기"}
+            </Link>
+          </div>
         </div>
         <textarea
           className="group-room-panel__textarea"
@@ -377,7 +289,6 @@ const OpenGroupRoomPanel = ({ onOpenRoom }) => {
           maxLength={500}
           rows={3}
         />
-        <p className="muted-text group-room-panel__location-status">{locationStatus}</p>
       </form>
 
       <div className="group-room-panel__section">
@@ -463,9 +374,6 @@ const OpenGroupRoomPanel = ({ onOpenRoom }) => {
             <option value={5}>5km</option>
             <option value={10}>10km</option>
           </select>
-          <button type="button" className="ghost-button" onClick={handleUseCurrentLocation} disabled={isLocating}>
-            {isLocating ? "위치 확인 중..." : "내 위치"}
-          </button>
           <button type="submit" className="ghost-button">
             검색
           </button>
