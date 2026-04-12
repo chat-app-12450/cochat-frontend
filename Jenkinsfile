@@ -48,6 +48,7 @@ spec:
         container('git') {
           checkout scm
           script {
+            sh 'git config --global --add safe.directory "$WORKSPACE"'
             env.RESOLVED_IMAGE_TAG = params.IMAGE_TAG?.trim()
               ? params.IMAGE_TAG.trim()
               : sh(script: 'git rev-parse --short=12 HEAD', returnStdout: true).trim()
@@ -94,6 +95,7 @@ spec:
               touch "$HOME/.ssh/known_hosts"
               chmod 600 "$HOME/.ssh/known_hosts"
               ssh-keyscan -H github.com >> "$HOME/.ssh/known_hosts" 2>/dev/null
+              git config --global --add safe.directory "$INFRA_DIR"
 
               rm -rf "$INFRA_DIR"
               git clone --depth 1 --branch "$INFRA_BRANCH" "$INFRA_REPO_URL" "$INFRA_DIR"
