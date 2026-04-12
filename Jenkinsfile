@@ -40,6 +40,10 @@ spec:
     INFRA_DIR = "${WORKSPACE}/.infra-repo"
     GIT_COMMITTER_NAME = 'Jenkins'
     GIT_COMMITTER_EMAIL = 'jenkins@kube.com'
+    DEFAULT_DOCKER_IMAGE_REPOSITORY = 'docker.io/spotifyyyyy/chat-frontend'
+    DEFAULT_INFRA_REPO_URL = 'git@github.com:xcdev-0/chat-platform-infra.git'
+    DEFAULT_INFRA_BRANCH = 'main'
+    DEFAULT_INFRA_VALUES_PATH = 'environments/dev/apps/frontend-values.yaml'
   }
 
   stages {
@@ -49,6 +53,10 @@ spec:
           checkout scm
           script {
             sh 'git config --global --add safe.directory "$WORKSPACE"'
+            env.RESOLVED_DOCKER_IMAGE_REPOSITORY = params.DOCKER_IMAGE_REPOSITORY?.trim() ?: env.DEFAULT_DOCKER_IMAGE_REPOSITORY
+            env.RESOLVED_INFRA_REPO_URL = params.INFRA_REPO_URL?.trim() ?: env.DEFAULT_INFRA_REPO_URL
+            env.RESOLVED_INFRA_BRANCH = params.INFRA_BRANCH?.trim() ?: env.DEFAULT_INFRA_BRANCH
+            env.RESOLVED_INFRA_VALUES_PATH = params.INFRA_VALUES_PATH?.trim() ?: env.DEFAULT_INFRA_VALUES_PATH
             env.RESOLVED_IMAGE_TAG = params.IMAGE_TAG?.trim()
               ? params.IMAGE_TAG.trim()
               : sh(script: 'git rev-parse --short=12 HEAD', returnStdout: true).trim()
@@ -77,7 +85,7 @@ spec:
               /kaniko/executor \
                 --context "$WORKSPACE" \
                 --dockerfile "$WORKSPACE/Dockerfile" \
-                --destination "${DOCKER_IMAGE_REPOSITORY}:${RESOLVED_IMAGE_TAG}" \
+                --destination "${RESOLVED_DOCKER_IMAGE_REPOSITORY}:${RESOLVED_IMAGE_TAG}" \
                 --cache=true
             '''
           }
@@ -98,24 +106,24 @@ spec:
               git config --global --add safe.directory "$INFRA_DIR"
 
               rm -rf "$INFRA_DIR"
-              git clone --depth 1 --branch "$INFRA_BRANCH" "$INFRA_REPO_URL" "$INFRA_DIR"
+              git clone --depth 1 --branch "$RESOLVED_INFRA_BRANCH" "$RESOLVED_INFRA_REPO_URL" "$INFRA_DIR"
 
               sh "$INFRA_DIR/cicd/update_image_tag.sh" \
-                "$INFRA_DIR/$INFRA_VALUES_PATH" \
-                "$DOCKER_IMAGE_REPOSITORY" \
+                "$INFRA_DIR/$RESOLVED_INFRA_VALUES_PATH" \
+                "$RESOLVED_DOCKER_IMAGE_REPOSITORY" \
                 "$RESOLVED_IMAGE_TAG"
 
               git -C "$INFRA_DIR" config user.name "$GIT_COMMITTER_NAME"
               git -C "$INFRA_DIR" config user.email "$GIT_COMMITTER_EMAIL"
 
-              if git -C "$INFRA_DIR" diff --quiet -- "$INFRA_VALUES_PATH"; then
+              if git -C "$INFRA_DIR" diff --quiet -- "$RESOLVED_INFRA_VALUES_PATH"; then
                 echo "No infra change detected."
                 exit 0
               fi
 
-              git -C "$INFRA_DIR" add "$INFRA_VALUES_PATH"
+              git -C "$INFRA_DIR" add "$RESOLVED_INFRA_VALUES_PATH"
               git -C "$INFRA_DIR" commit -m "ci(frontend): deploy ${RESOLVED_IMAGE_TAG}"
-              git -C "$INFRA_DIR" push origin "HEAD:$INFRA_BRANCH"
+              git -C "$INFRA_DIR" push origin "HEAD:$RESOLVED_INFRA_BRANCH"
             '''
           }
         }
