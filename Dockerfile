@@ -1,4 +1,14 @@
-# Step 1: React 빌드 결과를 그대로 이미지에 복사
+# Jenkins와 kaniko에서 바로 이미지를 만들 수 있도록 프론트 빌드를 이미지 안에서 끝낸다.
+FROM node:20-alpine AS build
+
+WORKDIR /app
+
+COPY package*.json ./
+RUN npm ci
+
+COPY . .
+RUN npm run build
+
 FROM nginx:alpine
 
 # nginx 설정 복사
@@ -12,7 +22,7 @@ RUN chmod +x /entrypoint.sh
 RUN rm -f /etc/nginx/conf.d/default.conf
 
 # React 빌드 결과 복사
-COPY build/ /usr/share/nginx/html
+COPY --from=build /app/build/ /usr/share/nginx/html
 
 # 80 포트로 서비스
 EXPOSE 80
