@@ -71,16 +71,16 @@ spec:
           withCredentials([usernamePassword(credentialsId: env.DOCKERHUB_CREDENTIALS_ID, usernameVariable: 'DOCKER_USERNAME', passwordVariable: 'DOCKER_PASSWORD')]) {
             sh '''
               mkdir -p /kaniko/.docker
-              cat > /kaniko/.docker/config.json <<EOF
-              {
-                "auths": {
-                  "https://index.docker.io/v1/": {
-                    "username": "${DOCKER_USERNAME}",
-                    "password": "${DOCKER_PASSWORD}"
-                  }
-                }
-              }
-              EOF
+cat > /kaniko/.docker/config.json <<EOF
+{
+  "auths": {
+    "https://index.docker.io/v1/": {
+      "username": "${DOCKER_USERNAME}",
+      "password": "${DOCKER_PASSWORD}"
+    }
+  }
+}
+EOF
 
               /kaniko/executor \
                 --context "$WORKSPACE" \
