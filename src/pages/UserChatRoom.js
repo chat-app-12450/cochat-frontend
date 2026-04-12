@@ -6,6 +6,8 @@ import { CHAT_WS_URL } from "../config/runtime";
 const HISTORY_PAGE_SIZE = 30;
 const HISTORY_SCROLL_THRESHOLD = 80;
 const READ_FLUSH_DEBOUNCE_MS = 3000;
+const WS_RECONNECT_BASE_DELAY_MS = 1000;
+const WS_RECONNECT_MAX_DELAY_MS = 5000;
 
 const buildStompFrame = (command, headers = {}, body = "") => {
   const headerLines = Object.entries(headers).map(([key, value]) => `${key}:${value}`);
@@ -318,6 +320,9 @@ const UserChatRoom = ({ roomId }) => {
   useEffect(() => {
     let isActive = true;
     const previousRoomId = roomId;
+    let reconnectAttempt = 0;
+    let reconnectTimerId = null;
+    let isIntentionalClose = false;
 
     setMessages([]);
     setConnectionError(null);
@@ -332,119 +337,176 @@ const UserChatRoom = ({ roomId }) => {
 
     loadHistory();
 
-    const ws = new WebSocket(CHAT_WS_URL);
-    socketRef.current = ws;
-    ws.onopen = () => {
-      ws.send(buildStompFrame("CONNECT", {
-        "accept-version": "1.2",
-        "heart-beat": "0,0",
-      }));
-    };
-    ws.onmessage = (event) => {
-      frameBufferRef.current += event.data;
-      const frames = frameBufferRef.current.split("\0");
-      frameBufferRef.current = frames.pop() ?? "";
-
-      frames
-        .filter(Boolean)
-        .map(parseStompFrame)
-        .forEach((frame) => {
-          if (!isActive) {
-            return;
-          }
-
-          if (frame.command === "CONNECTED") {
-            connectedRef.current = true;
-            setConnectionError(null);
-            ws.send(buildStompFrame("SUBSCRIBE", {
-              id: `room-${roomId}`,
-              destination: `/topic/chat/rooms/${roomId}`,
-            }));
-            return;
-          }
-
-          if (frame.command === "MESSAGE") {
-            try {
-              const rawData = JSON.parse(frame.body);
-              if (rawData?.type === "READ") {
-                const readerId = rawData.readerId;
-                const newReadSeq = Number(rawData.newReadSeq ?? 0);
-                if (readerId == null || newReadSeq <= 0 || String(readerId) === String(myUserId)) {
-                  return;
-                }
-
-                const readerKey = String(readerId);
-                const previousAppliedReadSeq = Number(lastAppliedReadSeqByUserRef.current[readerKey] ?? 0);
-                if (newReadSeq <= previousAppliedReadSeq) {
-                  return;
-                }
-
-                const previousReadSeq = Math.max(
-                  previousAppliedReadSeq,
-                  Number(rawData.previousReadSeq ?? 0)
-                );
-
-                setMessages((prev) => prev.map((message) => {
-                  if (message.messageSeq == null) {
-                    return message;
-                  }
-                  if (String(message.senderId) === readerKey) {
-                    return message;
-                  }
-                  if (message.messageSeq <= previousReadSeq || message.messageSeq > newReadSeq) {
-                    return message;
-                  }
-                  return {
-                    ...message,
-                    unreadCount: Math.max(Number(message.unreadCount ?? 0) - 1, 0),
-                  };
-                }));
-                lastAppliedReadSeqByUserRef.current[readerKey] = newReadSeq;
-                return;
-              }
-
-              const data = normalizeMessage(rawData);
-              if (isNearBottom(messageListRef.current)) {
-                scrollInstructionRef.current = { type: "bottom" };
-              }
-              setMessages((prev) => mergeMessages([...prev, data]));
-              if (String(data.senderId) !== String(myUserId) && data.messageSeq != null) {
-                queueReadFlush(data.messageSeq);
-              }
-            } catch {
-              // ignore malformed broadcast
-            }
-            return;
-          }
-
-          if (frame.command === "ERROR") {
-            connectedRef.current = false;
-            setConnectionError(frame.body || "채팅 서버 연결이 거부되었습니다.");
-            ws.close();
-          }
-        });
-    };
-    ws.onclose = () => {
-      connectedRef.current = false;
-      if (isActive) {
-        setConnectionError((current) => current ?? "실시간 채팅 연결이 종료되었습니다.");
+    const clearReconnectTimer = () => {
+      if (reconnectTimerId != null) {
+        window.clearTimeout(reconnectTimerId);
+        reconnectTimerId = null;
       }
     };
-    ws.onerror = () => {
-      connectedRef.current = false;
-      setConnectionError("실시간 채팅 연결에 실패했습니다.");
+
+    const scheduleReconnect = () => {
+      if (!isActive || isIntentionalClose) {
+        return;
+      }
+
+      clearReconnectTimer();
+      reconnectAttempt += 1;
+      const reconnectDelay = Math.min(
+        WS_RECONNECT_BASE_DELAY_MS * reconnectAttempt,
+        WS_RECONNECT_MAX_DELAY_MS
+      );
+      setConnectionError(`실시간 채팅 재연결 중... (${Math.ceil(reconnectDelay / 1000)}초)`);
+      reconnectTimerId = window.setTimeout(() => {
+        connectSocket();
+      }, reconnectDelay);
     };
+
+    const connectSocket = () => {
+      if (!isActive) {
+        return;
+      }
+
+      clearReconnectTimer();
+      frameBufferRef.current = "";
+
+      const ws = new WebSocket(CHAT_WS_URL);
+      socketRef.current = ws;
+
+      ws.onopen = () => {
+        if (!isActive || socketRef.current !== ws) {
+          return;
+        }
+        ws.send(buildStompFrame("CONNECT", {
+          "accept-version": "1.2",
+          "heart-beat": "0,0",
+        }));
+      };
+
+      ws.onmessage = (event) => {
+        if (!isActive || socketRef.current !== ws) {
+          return;
+        }
+
+        frameBufferRef.current += event.data;
+        const frames = frameBufferRef.current.split("\0");
+        frameBufferRef.current = frames.pop() ?? "";
+
+        frames
+          .filter(Boolean)
+          .map(parseStompFrame)
+          .forEach((frame) => {
+            if (!isActive || socketRef.current !== ws) {
+              return;
+            }
+
+            if (frame.command === "CONNECTED") {
+              connectedRef.current = true;
+              reconnectAttempt = 0;
+              setConnectionError(null);
+              ws.send(buildStompFrame("SUBSCRIBE", {
+                id: `room-${roomId}`,
+                destination: `/topic/chat/rooms/${roomId}`,
+              }));
+              return;
+            }
+
+            if (frame.command === "MESSAGE") {
+              try {
+                const rawData = JSON.parse(frame.body);
+                if (rawData?.type === "READ") {
+                  const readerId = rawData.readerId;
+                  const newReadSeq = Number(rawData.newReadSeq ?? 0);
+                  if (readerId == null || newReadSeq <= 0 || String(readerId) === String(myUserId)) {
+                    return;
+                  }
+
+                  const readerKey = String(readerId);
+                  const previousAppliedReadSeq = Number(lastAppliedReadSeqByUserRef.current[readerKey] ?? 0);
+                  if (newReadSeq <= previousAppliedReadSeq) {
+                    return;
+                  }
+
+                  const previousReadSeq = Math.max(
+                    previousAppliedReadSeq,
+                    Number(rawData.previousReadSeq ?? 0)
+                  );
+
+                  setMessages((prev) => prev.map((message) => {
+                    if (message.messageSeq == null) {
+                      return message;
+                    }
+                    if (String(message.senderId) === readerKey) {
+                      return message;
+                    }
+                    if (message.messageSeq <= previousReadSeq || message.messageSeq > newReadSeq) {
+                      return message;
+                    }
+                    return {
+                      ...message,
+                      unreadCount: Math.max(Number(message.unreadCount ?? 0) - 1, 0),
+                    };
+                  }));
+                  lastAppliedReadSeqByUserRef.current[readerKey] = newReadSeq;
+                  return;
+                }
+
+                const data = normalizeMessage(rawData);
+                if (isNearBottom(messageListRef.current)) {
+                  scrollInstructionRef.current = { type: "bottom" };
+                }
+                setMessages((prev) => mergeMessages([...prev, data]));
+                if (String(data.senderId) !== String(myUserId) && data.messageSeq != null) {
+                  queueReadFlush(data.messageSeq);
+                }
+              } catch {
+                // ignore malformed broadcast
+              }
+              return;
+            }
+
+            if (frame.command === "ERROR") {
+              connectedRef.current = false;
+              setConnectionError(frame.body || "채팅 서버 연결이 거부되었습니다.");
+              ws.close();
+            }
+          });
+      };
+
+      ws.onclose = () => {
+        if (socketRef.current === ws) {
+          socketRef.current = null;
+        }
+        connectedRef.current = false;
+        if (!isActive || isIntentionalClose) {
+          return;
+        }
+        scheduleReconnect();
+      };
+
+      ws.onerror = () => {
+        connectedRef.current = false;
+        if (!isActive || isIntentionalClose) {
+          return;
+        }
+        setConnectionError("실시간 채팅 연결에 실패했습니다.");
+      };
+    };
+
+    connectSocket();
 
     return () => {
       isActive = false;
+      isIntentionalClose = true;
       connectedRef.current = false;
       frameBufferRef.current = "";
       clearReadFlushTimer();
+      clearReconnectTimer();
       void flushPendingRead({ keepalive: true, roomIdOverride: previousRoomId });
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(buildStompFrame("DISCONNECT"));
+      if (socketRef.current?.readyState === WebSocket.OPEN) {
+        socketRef.current.send(buildStompFrame("DISCONNECT"));
       }
-      ws.close();
+      socketRef.current?.close();
+      socketRef.current = null;
     };
   }, [roomId, loadHistory, myUserId, queueReadFlush, clearReadFlushTimer, flushPendingRead]);
 
