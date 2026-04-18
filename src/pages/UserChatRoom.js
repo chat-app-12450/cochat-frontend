@@ -112,7 +112,7 @@ const isNearBottom = (element) => {
   return element.scrollHeight - element.scrollTop - element.clientHeight < 80;
 };
 
-const UserChatRoom = ({ roomId }) => {
+const UserChatRoom = ({ roomId, openChat = false }) => {
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState([]);
   const [connectionError, setConnectionError] = useState(null);
@@ -574,11 +574,13 @@ const UserChatRoom = ({ roomId }) => {
         )}
         {messages.map((m, idx) => {
           const isMine = String(m.senderId) === String(myUserId);
-          const unreadLabel = m.unreadCount == null
-            ? "전송 중..."
-            : m.unreadCount > 0
-              ? `안읽음 ${m.unreadCount}`
-              : "읽음";
+          const unreadLabel = openChat
+            ? null
+            : m.unreadCount == null
+              ? "전송 중..."
+              : m.unreadCount > 0
+                ? `안읽음 ${m.unreadCount}`
+                : "읽음";
           return (
             <div
               key={m.messageId ?? idx}
@@ -591,9 +593,11 @@ const UserChatRoom = ({ roomId }) => {
                 <div className="message-bubble__content">
                   {m.content ?? "[내용 없음]"}
                 </div>
-                <div className="message-bubble__meta">
-                  {unreadLabel}
-                </div>
+                {unreadLabel && (
+                  <div className="message-bubble__meta">
+                    {unreadLabel}
+                  </div>
+                )}
               </div>
             </div>
           );

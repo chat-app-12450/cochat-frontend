@@ -17,23 +17,6 @@ const formatDate = (value) => {
   }).format(new Date(value));
 };
 
-const formatDistance = (distanceMeters) => {
-  if (distanceMeters == null) {
-    return "";
-  }
-
-  const distance = Number(distanceMeters);
-  if (!Number.isFinite(distance)) {
-    return "";
-  }
-
-  if (distance < 1000) {
-    return `${Math.round(distance)}m`;
-  }
-
-  return `${(distance / 1000).toFixed(1)}km`;
-};
-
 const ProductCard = ({ product, actionLabel, actionTo }) => {
   const navigate = useNavigate();
 
@@ -67,11 +50,6 @@ const ProductCard = ({ product, actionLabel, actionTo }) => {
         <h3>{product.title}</h3>
         <p className="product-card__price">{formatPrice(product.price)}원</p>
         <p className="muted-text">판매자 {product.sellerName}</p>
-        {(product.locationLabel || product.distanceMeters != null) && (
-          <p className="muted-text">
-            {[product.locationLabel, formatDistance(product.distanceMeters)].filter(Boolean).join(" · ")}
-          </p>
-        )}
 
         {actionLabel && actionTo && (
           <button

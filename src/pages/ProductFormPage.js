@@ -2,7 +2,7 @@ import React, { useContext, useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import ProductForm from "../components/ProductForm";
 import { fetchWithAuth } from "../utils/api";
-import { AuthContext, LocationContext } from "../App";
+import { AuthContext } from "../App";
 
 const EMPTY_FORM = {
   title: "",
@@ -19,7 +19,6 @@ const ProductFormPage = ({ mode }) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { productId } = useParams();
   const { user } = useContext(AuthContext);
-  const { verifiedLocation, locationLoading } = useContext(LocationContext);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -84,18 +83,6 @@ const ProductFormPage = ({ mode }) => {
     setError(null);
     setIsSubmitting(true);
 
-    if (mode !== "edit" && locationLoading) {
-      setError("위치 인증 상태를 확인하는 중입니다. 잠시 후 다시 시도해주세요.");
-      setIsSubmitting(false);
-      return;
-    }
-
-    if (mode !== "edit" && !verifiedLocation) {
-      setError("상품 등록 전에 위치 인증 페이지에서 현재 위치를 먼저 인증해주세요.");
-      setIsSubmitting(false);
-      return;
-    }
-
     const payload = {
       title: form.title.trim(),
       description: form.description.trim(),
@@ -150,29 +137,6 @@ const ProductFormPage = ({ mode }) => {
         </div>
       ) : (
         <>
-          {mode !== "edit" && (
-            <div className="location-summary-card" style={{ marginBottom: 24 }}>
-              <div className="location-summary-card__header">
-                <div>
-                  <strong>위치 인증 상태</strong>
-                  <p className="muted-text">
-                    {locationLoading
-                      ? "현재 위치 인증 상태를 불러오는 중입니다."
-                      : verifiedLocation
-                        ? `현재 인증 위치: ${verifiedLocation.locationLabel || "좌표 인증 완료"}`
-                        : "상품 등록 전 위치 인증이 필요합니다."}
-                  </p>
-                </div>
-                <Link
-                  to="/location"
-                  className={verifiedLocation ? "ghost-button" : "primary-button"}
-                >
-                  {verifiedLocation ? "위치 다시 인증" : "위치 인증하러 가기"}
-                </Link>
-              </div>
-            </div>
-          )}
-
           <ProductForm
             form={form}
             onChange={handleChange}

@@ -1,9 +1,5 @@
-import React, { useCallback, useContext, useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
-import { LocationContext } from "../App";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { fetchWithAuth } from "../utils/api";
-
-const DEFAULT_RADIUS_KM = 3;
 
 const formatMessageTime = (value) => {
   if (!value) {
@@ -18,23 +14,6 @@ const formatMessageTime = (value) => {
   }).format(new Date(value));
 };
 
-const formatDistance = (distanceMeters) => {
-  if (distanceMeters == null) {
-    return "";
-  }
-
-  const distance = Number(distanceMeters);
-  if (!Number.isFinite(distance)) {
-    return "";
-  }
-
-  if (distance < 1000) {
-    return `${Math.round(distance)}m`;
-  }
-
-  return `${(distance / 1000).toFixed(1)}km`;
-};
-
 const OpenGroupRoomPanel = ({ onOpenRoom }) => {
   const [keywordInput, setKeywordInput] = useState("");
   const [searchKeyword, setSearchKeyword] = useState("");
@@ -46,11 +25,9 @@ const OpenGroupRoomPanel = ({ onOpenRoom }) => {
   const [createName, setCreateName] = useState("");
   const [createDescription, setCreateDescription] = useState("");
   const [maxParticipants, setMaxParticipants] = useState(50);
-  const [radiusKm, setRadiusKm] = useState(DEFAULT_RADIUS_KM);
   const [isCreating, setIsCreating] = useState(false);
   const [joiningRoomId, setJoiningRoomId] = useState(null);
   const [leavingRoomId, setLeavingRoomId] = useState(null);
-  const { verifiedLocation, locationLoading } = useContext(LocationContext);
 
   const loadJoinedRooms = useCallback(async () => {
     setJoinedLoading(true);
@@ -68,18 +45,13 @@ const OpenGroupRoomPanel = ({ onOpenRoom }) => {
     }
   }, []);
 
-  const loadSearchRooms = useCallback(async (keyword, location, searchRadiusKm) => {
+  const loadSearchRooms = useCallback(async (keyword) => {
     setSearchLoading(true);
 
     try {
       const query = new URLSearchParams();
       if (keyword) {
         query.set("keyword", keyword);
-      }
-      if (location?.latitude != null && location?.longitude != null) {
-        query.set("latitude", String(location.latitude));
-        query.set("longitude", String(location.longitude));
-        query.set("radius_km", String(searchRadiusKm ?? DEFAULT_RADIUS_KM));
       }
 
       const endpoint = query.toString()
@@ -100,29 +72,11 @@ const OpenGroupRoomPanel = ({ onOpenRoom }) => {
     }
   }, []);
 
-  const searchLocation = useMemo(() => (
-    verifiedLocation?.latitude != null && verifiedLocation?.longitude != null
-      ? verifiedLocation
-      : null
-  ), [verifiedLocation]);
-
-  const locationStatus = useMemo(() => {
-    if (locationLoading) {
-      return "위치 인증 상태를 확인하는 중입니다.";
-    }
-
-    if (!verifiedLocation) {
-      return "위치 인증 페이지에서 현재 위치를 인증하면 오픈채팅 생성과 근처 검색에 자동으로 사용됩니다.";
-    }
-
-    return `인증 위치: ${verifiedLocation.locationLabel || "좌표 인증 완료"} · 반경 ${radiusKm}km 기준으로 근처 오픈채팅을 찾습니다.`;
-  }, [locationLoading, verifiedLocation, radiusKm]);
-
   useEffect(() => {
     setError(null);
     void loadJoinedRooms();
-    void loadSearchRooms(searchKeyword, searchLocation, radiusKm);
-  }, [loadJoinedRooms, loadSearchRooms, searchKeyword, searchLocation, radiusKm]);
+    void loadSearchRooms(searchKeyword);
+  }, [loadJoinedRooms, loadSearchRooms, searchKeyword]);
 
   const joinedRoomIds = useMemo(
     () => new Set(joinedRooms.map((room) => room.id)),
@@ -148,16 +102,6 @@ const OpenGroupRoomPanel = ({ onOpenRoom }) => {
       return;
     }
 
-    if (locationLoading) {
-      setError("위치 인증 상태를 확인하는 중입니다. 잠시 후 다시 시도해주세요.");
-      return;
-    }
-
-    if (!verifiedLocation) {
-      setError("오픈채팅을 만들기 전에 위치 인증 페이지에서 현재 위치를 먼저 인증해주세요.");
-      return;
-    }
-
     setIsCreating(true);
     setError(null);
 
@@ -180,7 +124,7 @@ const OpenGroupRoomPanel = ({ onOpenRoom }) => {
       setCreateDescription("");
       setMaxParticipants(50);
       await loadJoinedRooms();
-      await loadSearchRooms(searchKeyword, searchLocation, radiusKm);
+      await loadSearchRooms(searchKeyword);
       onOpenRoom(response.response.id);
     } catch {
       setError("오픈채팅 생성 요청에 실패했습니다.");
@@ -204,7 +148,7 @@ const OpenGroupRoomPanel = ({ onOpenRoom }) => {
       }
 
       await loadJoinedRooms();
-      await loadSearchRooms(searchKeyword, searchLocation, radiusKm);
+      await loadSearchRooms(searchKeyword);
       onOpenRoom(response.response.id);
     } catch {
       setError("오픈채팅 참여 요청에 실패했습니다.");
@@ -228,7 +172,7 @@ const OpenGroupRoomPanel = ({ onOpenRoom }) => {
       }
 
       await loadJoinedRooms();
-      await loadSearchRooms(searchKeyword, searchLocation, radiusKm);
+      await loadSearchRooms(searchKeyword);
     } catch {
       setError("오픈채팅 나가기 요청에 실패했습니다.");
     } finally {
@@ -266,20 +210,6 @@ const OpenGroupRoomPanel = ({ onOpenRoom }) => {
           <button type="submit" className="primary-button" disabled={isCreating}>
             {isCreating ? "생성 중..." : "오픈채팅 만들기"}
           </button>
-        </div>
-        <div className="location-summary-card">
-          <div className="location-summary-card__header">
-            <div>
-              <strong>위치 인증 상태</strong>
-              <p className="muted-text">{locationStatus}</p>
-            </div>
-            <Link
-              to="/location"
-              className={verifiedLocation ? "ghost-button" : "primary-button"}
-            >
-              {verifiedLocation ? "위치 다시 인증" : "위치 인증하러 가기"}
-            </Link>
-          </div>
         </div>
         <textarea
           className="group-room-panel__textarea"
@@ -335,9 +265,6 @@ const OpenGroupRoomPanel = ({ onOpenRoom }) => {
               <p className="group-room-card__description">
                 {room.description || "아직 소개글이 없습니다."}
               </p>
-              <p className="group-room-card__participants">
-                {room.locationLabel || "위치 라벨 없음"}
-              </p>
               <div className="group-room-card__footer">
                 <span className="muted-text">
                   {room.lastMessage?.content ?? "아직 메시지가 없습니다."}
@@ -364,21 +291,10 @@ const OpenGroupRoomPanel = ({ onOpenRoom }) => {
             onChange={(event) => setKeywordInput(event.target.value)}
             placeholder="채팅방 이름으로 검색"
           />
-          <select
-            className="message-panel__input"
-            value={radiusKm}
-            onChange={(event) => setRadiusKm(Number(event.target.value))}
-          >
-            <option value={1}>1km</option>
-            <option value={3}>3km</option>
-            <option value={5}>5km</option>
-            <option value={10}>10km</option>
-          </select>
           <button type="submit" className="ghost-button">
             검색
           </button>
         </form>
-        <p className="muted-text group-room-panel__location-status">{locationStatus}</p>
 
         {searchLoading && <div className="feedback">오픈채팅 검색 결과를 불러오는 중입니다.</div>}
         {!searchLoading && searchRooms.length === 0 && (
@@ -418,10 +334,6 @@ const OpenGroupRoomPanel = ({ onOpenRoom }) => {
                 </div>
                 <p className="group-room-card__description">
                   {room.description || "아직 소개글이 없습니다."}
-                </p>
-                <p className="group-room-card__participants">
-                  {[room.locationLabel, formatDistance(room.distanceMeters)].filter(Boolean).join(" · ")
-                    || "위치 정보 없음"}
                 </p>
                 <p className="group-room-card__participants">
                   {room.participants?.slice(0, 4).map((participant) => participant.name).join(", ")

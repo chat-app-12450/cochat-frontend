@@ -31,9 +31,6 @@ const AppShell = ({ children }) => {
           <NavLink to="/products" className={({ isActive }) => `app-nav__link ${isActive ? "active" : ""}`}>
             상품 둘러보기
           </NavLink>
-          <NavLink to="/location" className={({ isActive }) => `app-nav__link ${isActive ? "active" : ""}`}>
-            위치 인증
-          </NavLink>
           <NavLink to="/products/new" className={({ isActive }) => `app-nav__link ${isActive ? "active" : ""}`}>
             상품 등록
           </NavLink>

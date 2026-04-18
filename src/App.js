@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import React, { createContext, useContext, useEffect, useState } from "react";
 import { BrowserRouter as Router, Navigate, Route, Routes } from "react-router-dom";
 import "./App.css";
 import LoginPage from "./pages/LoginPage";
@@ -9,12 +9,10 @@ import ProductFormPage from "./pages/ProductFormPage";
 import MyProductsPage from "./pages/MyProductsPage";
 import ChatPage from "./pages/ChatPage";
 import OpenChatPage from "./pages/OpenChatPage";
-import LocationVerificationPage from "./pages/LocationVerificationPage";
 import AppShell from "./components/AppShell";
 import { fetchWithAuth } from "./utils/api";
 
 export const AuthContext = createContext();
-export const LocationContext = createContext();
 
 const DEFAULT_PRIVATE_ROUTE = "/products";
 
@@ -73,61 +71,6 @@ const AuthProvider = ({ children }) => {
   );
 };
 
-const LocationProvider = ({ children }) => {
-  const { user, loading: authLoading } = useContext(AuthContext);
-  const [verifiedLocation, setVerifiedLocation] = useState(null);
-  const [locationLoading, setLocationLoading] = useState(true);
-
-  const refreshVerifiedLocation = useCallback(async () => {
-    if (!user) {
-      setVerifiedLocation(null);
-      setLocationLoading(false);
-      return null;
-    }
-
-    setLocationLoading(true);
-
-    try {
-      const response = await fetchWithAuth("/user/location", { method: "GET" });
-      const nextLocation = response.success ? response.response ?? null : null;
-      setVerifiedLocation(nextLocation);
-      return nextLocation;
-    } catch {
-      setVerifiedLocation(null);
-      return null;
-    } finally {
-      setLocationLoading(false);
-    }
-  }, [user]);
-
-  useEffect(() => {
-    if (authLoading) {
-      return;
-    }
-
-    if (!user) {
-      setVerifiedLocation(null);
-      setLocationLoading(false);
-      return;
-    }
-
-    void refreshVerifiedLocation();
-  }, [authLoading, user, refreshVerifiedLocation]);
-
-  const value = useMemo(() => ({
-    verifiedLocation,
-    setVerifiedLocation,
-    locationLoading,
-    refreshVerifiedLocation,
-  }), [verifiedLocation, locationLoading, refreshVerifiedLocation]);
-
-  return (
-    <LocationContext.Provider value={value}>
-      {children}
-    </LocationContext.Provider>
-  );
-};
-
 const ProtectedRoute = ({ children }) => {
   const { user, loading } = useContext(AuthContext);
 
@@ -167,102 +110,92 @@ const DefaultRoute = () => {
 const App = () => {
   return (
     <AuthProvider>
-      <LocationProvider>
-        <Router>
-          <Routes>
-            <Route path="/" element={<DefaultRoute />} />
-            <Route
-              path="/login"
-              element={
-                <PublicOnlyRoute>
-                  <LoginPage />
-                </PublicOnlyRoute>
-              }
-            />
-            <Route
-              path="/register"
-              element={
-                <PublicOnlyRoute>
-                  <RegisterPage />
-                </PublicOnlyRoute>
-              }
-            />
-            <Route
-              path="/products"
-              element={
-                <PrivateLayoutRoute>
-                  <MarketplacePage />
-                </PrivateLayoutRoute>
-              }
-            />
-            <Route
-              path="/location"
-              element={
-                <PrivateLayoutRoute>
-                  <LocationVerificationPage />
-                </PrivateLayoutRoute>
-              }
-            />
-            <Route
-              path="/products/new"
-              element={
-                <PrivateLayoutRoute>
-                  <ProductFormPage mode="create" />
-                </PrivateLayoutRoute>
-              }
-            />
-            <Route
-              path="/products/me"
-              element={
-                <PrivateLayoutRoute>
-                  <MyProductsPage />
-                </PrivateLayoutRoute>
-              }
-            />
-            <Route
-              path="/products/:productId"
-              element={
-                <PrivateLayoutRoute>
-                  <ProductDetailPage />
-                </PrivateLayoutRoute>
-              }
-            />
-            <Route
-              path="/products/:productId/edit"
-              element={
-                <PrivateLayoutRoute>
-                  <ProductFormPage mode="edit" />
-                </PrivateLayoutRoute>
-              }
-            />
-            <Route
-              path="/chat/rooms"
-              element={
-                <PrivateLayoutRoute>
-                  <ChatPage />
-                </PrivateLayoutRoute>
-              }
-            />
-            <Route
-              path="/chat/open"
-              element={
-                <PrivateLayoutRoute>
-                  <OpenChatPage />
-                </PrivateLayoutRoute>
-              }
-            />
-            <Route
-              path="/chat/:roomId"
-              element={
-                <PrivateLayoutRoute>
-                  <ChatPage />
-                </PrivateLayoutRoute>
-              }
-            />
-            <Route path="*" element={<DefaultRoute />} />
-          </Routes>
-        </Router>
-      </LocationProvider>
+      <Router>
+        <Routes>
+          <Route path="/" element={<DefaultRoute />} />
+          <Route
+            path="/login"
+            element={
+              <PublicOnlyRoute>
+                <LoginPage />
+              </PublicOnlyRoute>
+            }
+          />
+          <Route
+            path="/register"
+            element={
+              <PublicOnlyRoute>
+                <RegisterPage />
+              </PublicOnlyRoute>
+            }
+          />
+          <Route
+            path="/products"
+            element={
+              <PrivateLayoutRoute>
+                <MarketplacePage />
+              </PrivateLayoutRoute>
+            }
+          />
+          <Route
+            path="/products/new"
+            element={
+              <PrivateLayoutRoute>
+                <ProductFormPage mode="create" />
+              </PrivateLayoutRoute>
+            }
+          />
+          <Route
+            path="/products/me"
+            element={
+              <PrivateLayoutRoute>
+                <MyProductsPage />
+              </PrivateLayoutRoute>
+            }
+          />
+          <Route
+            path="/products/:productId"
+            element={
+              <PrivateLayoutRoute>
+                <ProductDetailPage />
+              </PrivateLayoutRoute>
+            }
+          />
+          <Route
+            path="/products/:productId/edit"
+            element={
+              <PrivateLayoutRoute>
+                <ProductFormPage mode="edit" />
+              </PrivateLayoutRoute>
+            }
+          />
+          <Route
+            path="/chat/rooms"
+            element={
+              <PrivateLayoutRoute>
+                <ChatPage />
+              </PrivateLayoutRoute>
+            }
+          />
+          <Route
+            path="/chat/open"
+            element={
+              <PrivateLayoutRoute>
+                <OpenChatPage />
+              </PrivateLayoutRoute>
+            }
+          />
+          <Route
+            path="/chat/:roomId"
+            element={
+              <PrivateLayoutRoute>
+                <ChatPage />
+              </PrivateLayoutRoute>
+            }
+          />
+          <Route path="*" element={<DefaultRoute />} />
+        </Routes>
+      </Router>
     </AuthProvider>
   );
 };

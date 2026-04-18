@@ -48,7 +48,7 @@ const ChatRoomListPanel = ({ rooms, currentRoomId, loading, error }) => {
               <div className="chat-room-card__topline">
                 <strong>{room.counterpart?.name ?? room.name}</strong>
                 <div className="chat-room-card__meta">
-                  {room.unreadCount > 0 && (
+                  {!room.openChat && room.unreadCount > 0 && (
                     <span className="chat-room-card__unread">
                       {room.unreadCount > 99 ? "99+" : room.unreadCount}
                     </span>

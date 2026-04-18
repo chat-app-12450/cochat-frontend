@@ -132,7 +132,7 @@ const ChatPage = () => {
           </div>
         </div>
 
-        <UserChatRoom roomId={roomId} />
+        <UserChatRoom roomId={roomId} openChat={Boolean(currentRoom?.openChat)} />
       </section>
     ) : (
       <section className="page-section page-section--narrow">
