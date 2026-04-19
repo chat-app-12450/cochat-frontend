@@ -32,7 +32,7 @@ spec:
     string(name: 'DOCKER_IMAGE_REPOSITORY', defaultValue: 'docker.io/spotifyyyyy/chat-frontend', description: '푸시할 Docker 이미지 repository')
     string(name: 'INFRA_REPO_URL', defaultValue: 'git@github.com:xcdev-0/chat-platform-infra.git', description: 'Helm values를 관리하는 infra 저장소 URL')
     string(name: 'INFRA_BRANCH', defaultValue: 'main', description: 'infra 저장소 브랜치')
-    string(name: 'INFRA_VALUES_PATH', defaultValue: 'environments/dev/apps/frontend-values.yaml', description: '업데이트할 values 파일 경로')
+    string(name: 'INFRA_VALUES_PATH', defaultValue: 'infra-aws/environments/dev/apps/frontend-values.yaml', description: '업데이트할 values 파일 경로')
   }
 
   environment {
@@ -43,7 +43,7 @@ spec:
     DEFAULT_DOCKER_IMAGE_REPOSITORY = 'docker.io/spotifyyyyy/chat-frontend'
     DEFAULT_INFRA_REPO_URL = 'git@github.com:xcdev-0/chat-platform-infra.git'
     DEFAULT_INFRA_BRANCH = 'main'
-    DEFAULT_INFRA_VALUES_PATH = 'environments/dev/apps/frontend-values.yaml'
+    DEFAULT_INFRA_VALUES_PATH = 'infra-aws/environments/dev/apps/frontend-values.yaml'
   }
 
   stages {
@@ -108,7 +108,7 @@ EOF
               rm -rf "$INFRA_DIR"
               git clone --depth 1 --branch "$RESOLVED_INFRA_BRANCH" "$RESOLVED_INFRA_REPO_URL" "$INFRA_DIR"
 
-              sh "$INFRA_DIR/cicd/update_image_tag.sh" \
+              sh "$INFRA_DIR/infra-shared/cicd/update_image_tag.sh" \
                 "$INFRA_DIR/$RESOLVED_INFRA_VALUES_PATH" \
                 "$RESOLVED_DOCKER_IMAGE_REPOSITORY" \
                 "$RESOLVED_IMAGE_TAG"
