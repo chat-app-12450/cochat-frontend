@@ -7,6 +7,7 @@ body,
 body {
   margin: 0;
   color: #1d1a16;
+  background: #d6e0da;
   font-family: "Avenir Next", "Segoe UI", "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
